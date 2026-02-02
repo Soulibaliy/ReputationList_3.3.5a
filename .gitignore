@@ -1,0 +1,43 @@
+# WoW SavedVariables
+SavedVariables/
+*.lua.bak
+
+# Windows
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Archives
+*.zip
+*.rar
+*.7z
+!releases/*.zip
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+~$*
+
+# Compiled files
+*.exe
+*.dll
+*.so
+*.dylib
+
+# exe release
+!releases/*.exe
