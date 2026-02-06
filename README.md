@@ -114,7 +114,7 @@ Copy the file manually:
 
 ##  Changelog
 
-### Version 1.65b
+### Version 1.70
 - Current stable release
 
 See(CHANGELOG.md) for full version history.
