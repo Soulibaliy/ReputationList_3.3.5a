@@ -17,6 +17,8 @@ RL.UI.ElvUI = UI
 
 local L = ReputationList.L or ReputationListLocale
 
+local Common = RL.UICommon
+
 local CONFIG = {
     FRAME_WIDTH = 500,
     FRAME_HEIGHT = 400,
@@ -32,6 +34,7 @@ local STATE = {
     searchText = "",
     scrollOffset = 0,
     selectedPlayer = nil,
+    showGroupMembers = false,
 }
 
 local CACHE = {
@@ -47,15 +50,11 @@ local CACHE = {
 UI.framePool = {}
 
 local function GetPooledFrame(parent)
-    local frame = RL.UICommon.GetSimplePooledFrame(UI.framePool, parent)
-    if not frame then
-        frame = CreateFrame("Frame", nil, parent)
-    end
-    return frame
+    return Common.GetPooledFrame(parent, UI.framePool, RL.UICommon)
 end
 
 local function ReleaseFrame(frame)
-    RL.UICommon.ReleaseSimpleFrame(frame, UI.framePool)
+    Common.ReleaseFrame(frame, UI.framePool, RL.UICommon)
 end
 
 
@@ -170,6 +169,70 @@ function UI:CreateHeader(parent)
     title:SetTextColor(ELVUI_COLORS.ACCENT[1], ELVUI_COLORS.ACCENT[2], ELVUI_COLORS.ACCENT[3])
     parent.titleText = title
     
+    local whoHereLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    whoHereLabel:SetPoint("TOPRIGHT", -70, -15)
+    whoHereLabel:SetText(L["UI_WHO_HERE"] or "Кто здесь?")
+    whoHereLabel:SetTextColor(1, 1, 1)
+    parent.whoHereLabel = whoHereLabel
+    
+    local whoHereCheckbox = CreateFrame("CheckButton", "ReputationWhoHereCheckboxElvUI", parent, "UICheckButtonTemplate")
+    whoHereCheckbox:SetSize(24, 24)
+    whoHereCheckbox:SetPoint("LEFT", whoHereLabel, "RIGHT", 5, 0)
+    
+    whoHereCheckbox:SetScript("OnClick", function(self)
+        local isChecked = self:GetChecked()
+        
+        if isChecked then
+            local hasGroup = RL.GroupTracker and RL.GroupTracker:IsInGroup()
+            local hasSavedGroup = false
+            
+            if RL.GroupTracker then
+                local saved = RL.GroupTracker:GetSavedGroup()
+                if saved and saved.members and next(saved.members) then
+                    hasSavedGroup = true
+                end
+            end
+            
+            local hasCachedData = false
+            if ReputationGroupTrackerDB and ReputationGroupTrackerDB.whoHereCache then
+                hasCachedData = next(ReputationGroupTrackerDB.whoHereCache) ~= nil
+            end
+            
+            if not hasGroup and not hasSavedGroup and not hasCachedData then
+                self:SetChecked(false)
+                print(L["WH_D01"])
+                return
+            end
+            
+            if not hasGroup and (hasSavedGroup or hasCachedData) then
+                print(L["WH_D02"])
+            end
+        end
+        
+        STATE.showGroupMembers = isChecked
+        STATE.currentTab = isChecked and "whohere" or "blacklist"
+        
+        if isChecked then
+            for key, tab in pairs(CACHE.tabs or {}) do
+                StyleElvUITab(tab, false)
+                tab.text:SetTextColor(0.7, 0.7, 0.7)
+            end
+            UI:RefreshList()
+        else
+            UI:SwitchTab("blacklist")
+        end
+    end)
+    
+    whoHereCheckbox:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["WH_D03"] or "Кто здесь?", 1, 1, 0)
+        GameTooltip:AddLine(L["WH_D04"] or "Показать игроков в текущей группе/рейде", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    whoHereCheckbox:SetScript("OnLeave", GameTooltip_Hide)
+    
+    parent.whoHereCheckbox = whoHereCheckbox
+    
     local closeBtn = CreateFrame("Button", nil, parent)
     closeBtn:SetSize(20, 20)
     closeBtn:SetPoint("TOPRIGHT", -5, -5)
@@ -228,6 +291,11 @@ function UI:CreateToolbar(parent)
 end
 
 function UI:SwitchTab(tabName)
+    if CACHE.mainFrame and CACHE.mainFrame.whoHereCheckbox and CACHE.mainFrame.whoHereCheckbox:GetChecked() then
+        CACHE.mainFrame.whoHereCheckbox:SetChecked(false)
+        STATE.showGroupMembers = false
+    end
+    
     STATE.currentTab = tabName
     STATE.scrollOffset = 0
     
@@ -381,6 +449,64 @@ function UI:CreateRow(parent, index)
     CACHE.rows[index] = row
 end
 
+function UI:UpdateRowDisplay(row, data, isWhoHereMode)
+    if not row or not data then return end
+    
+    local nameColor = {1, 1, 1}
+    
+    if isWhoHereMode then
+        if data.inList then
+            if data.listType == "blacklist" then
+                nameColor = {1, 0, 0}
+            elseif data.listType == "whitelist" then
+                nameColor = {0, 1, 0}
+            elseif data.listType == "notelist" then
+                nameColor = {1, 0.66, 0}
+            end
+        end
+    else
+        local color = ELVUI_COLORS[STATE.currentTab:upper()] or {1, 1, 1}
+        nameColor = color
+    end
+    
+    row.nameText:SetText(data.name or "???")
+    row.nameText:SetTextColor(nameColor[1], nameColor[2], nameColor[3])
+    row.playerName = data.name
+    
+    row.noteText:SetText(data.note or "")
+    row.playerNote = data.note
+    
+    row.playerData = data
+    
+    if row.buttons.info then row.buttons.info:Show() end
+    if row.buttons.ignore then row.buttons.ignore:Show() end
+    
+    if isWhoHereMode then
+        if data.inList then
+            if row.buttons.edit then row.buttons.edit:Show() end
+            if row.buttons.delete then row.buttons.delete:Show() end
+            if row.buttons.addToList then row.buttons.addToList:Hide() end
+            if row.listTypeDropdown then row.listTypeDropdown:Hide() end
+        else
+            if row.buttons.edit then row.buttons.edit:Hide() end
+            if row.buttons.delete then row.buttons.delete:Hide() end
+            if row.buttons.addToList then row.buttons.addToList:Show() end
+            if row.listTypeDropdown then row.listTypeDropdown:Show() end
+        end
+    else
+        if row.buttons.edit then row.buttons.edit:Show() end
+        if row.buttons.delete then row.buttons.delete:Show() end
+        if row.buttons.addToList then row.buttons.addToList:Hide() end
+        if row.listTypeDropdown then row.listTypeDropdown:Hide() end
+    end
+    
+    local ignored = RL.IsInBlizzardIgnore(data.name)
+    local ignoreText = ignored and (L["UI_UNLOCK"] or "Разблок") or (L["UI_IG"] or "Игнор")
+    if row.buttons.ignore and row.buttons.ignore.text then
+        row.buttons.ignore.text:SetText(ignoreText)
+    end
+end
+
 function UI:CreateRowButtons(row)
     local buttons = {}
     local buttonSize = CONFIG.BUTTON_SIZE
@@ -479,6 +605,92 @@ function UI:CreateRowButtons(row)
     infoBtn:SetScript("OnLeave", GameTooltip_Hide)
     buttons.info = infoBtn
     
+    local dropdown = CreateFrame("Frame", "ReputationListRowDropdownElvUI"..tostring(row.index), row, "UIDropDownMenuTemplate")
+    dropdown:SetPoint("RIGHT", infoBtn, "LEFT", 105, -7)
+    UIDropDownMenu_SetWidth(dropdown, 20)
+    UIDropDownMenu_SetText(dropdown, "BL")
+    
+    local left = _G[dropdown:GetName().."Left"]
+    local middle = _G[dropdown:GetName().."Middle"]
+    local right = _G[dropdown:GetName().."Right"]
+    if left then left:SetTexture(nil) end
+    if middle then middle:SetTexture(nil) end
+    if right then right:SetTexture(nil) end
+    
+    local dropdownButton = _G[dropdown:GetName().."Button"]
+    if dropdownButton then
+        StyleElvUIButton(dropdownButton)
+        dropdownButton:SetSize(20, 20)
+    end
+    
+    row.selectedListType = "blacklist"
+    
+    local function OnDropdownClick(self)
+        UIDropDownMenu_SetSelectedID(dropdown, self:GetID())
+        row.selectedListType = self.value
+        local shortNames = {blacklist = "BL", whitelist = "WL", notelist = "NL"}
+        UIDropDownMenu_SetText(dropdown, shortNames[self.value])
+    end
+    
+    local function InitializeDropdown(self, level)
+        local info = UIDropDownMenu_CreateInfo()
+        
+        info.text = "Blacklist"
+        info.value = "blacklist"
+        info.func = OnDropdownClick
+        info.checked = (row.selectedListType == "blacklist")
+        UIDropDownMenu_AddButton(info, level)
+        
+        info.text = "Whitelist"
+        info.value = "whitelist"
+        info.func = OnDropdownClick
+        info.checked = (row.selectedListType == "whitelist")
+        UIDropDownMenu_AddButton(info, level)
+        
+        info.text = "Notelist"
+        info.value = "notelist"
+        info.func = OnDropdownClick
+        info.checked = (row.selectedListType == "notelist")
+        UIDropDownMenu_AddButton(info, level)
+    end
+    
+    UIDropDownMenu_Initialize(dropdown, InitializeDropdown)
+    dropdown:Hide()
+    row.listTypeDropdown = dropdown
+    
+    local addToListBtn = CreateFrame("Button", nil, row)
+    addToListBtn:SetSize(20, buttonSize)
+    addToListBtn:SetPoint("RIGHT", startX, 0)
+    StyleElvUIButton(addToListBtn)
+    
+    local addText = addToListBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    addText:SetPoint("CENTER")
+    addText:SetText("+")
+    addText:SetTextColor(0.3, 1, 0.3)
+    
+    addToListBtn:SetScript("OnClick", function()
+        if row.playerData and row.selectedListType then
+            local listType = row.selectedListType or "blacklist"
+            local note = L["UI_ADDED_FROM_GROUP"] or "Добавлен из группы"
+            
+            local unit = nil
+            if RL.FindPlayerInGroup then
+                unit = RL.FindPlayerInGroup(row.playerData.name)
+            end
+            
+            RL:AddPlayerDirect(row.playerData.name, listType, note, unit, row.playerData)
+            UI:RefreshList()
+        end
+    end)
+    addToListBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(L["UI_ADD"] or "Добавить", 0, 1, 0)
+        GameTooltip:Show()
+    end)
+    addToListBtn:SetScript("OnLeave", GameTooltip_Hide)
+    addToListBtn:Hide()
+    buttons.addToList = addToListBtn
+    
     return buttons
 end
 
@@ -487,6 +699,12 @@ function UI:RefreshList()
     if STATE.currentTab == "settings" then
         return
     end
+    
+    if STATE.showGroupMembers then
+        UI:RefreshGroupMembersList()
+        return
+    end
+    
     if CACHE.actionPanel then CACHE.actionPanel:Show() end
     if CACHE.settingsPanel then CACHE.settingsPanel:Hide() end
     if CACHE.scrollFrame then CACHE.scrollFrame:Show() end
@@ -545,7 +763,13 @@ function UI:RefreshList()
     self:UpdateVisibleRows()
 end
 
+
 function UI:UpdateVisibleRows()
+    if STATE.showGroupMembers then
+        UI:UpdateGroupMembersVisibleRows()
+        return
+    end
+    
     local players = CACHE.filteredPlayers
     
     if not CACHE.rows or #CACHE.rows == 0 then
@@ -562,32 +786,7 @@ function UI:UpdateVisibleRows()
         
         if dataIndex <= #players then
             local data = players[dataIndex]
-            
-            if row.playerName ~= data.name then
-                row.playerName = data.name
-                row.nameText:SetText(data.name)
-                
-                local color = ELVUI_COLORS[STATE.currentTab:upper()] or {1, 1, 1}
-                row.nameText:SetTextColor(color[1], color[2], color[3])
-            end
-            
-            if row.playerNote ~= data.note then
-                row.playerNote = data.note
-                row.noteText:SetText(data.note or "")
-            end
-            
-            if row.playerData ~= data then
-                row.playerData = data
-            end
-            
-            if row.buttons and row.buttons.ignore and row.buttons.ignore.text then
-                local ignored = RL.IsInBlizzardIgnore(data.name)
-                local currentText = row.buttons.ignore.text:GetText()
-                local newText = ignored and L["UI_UNLOCK"] or L["UI_IG"]
-                if currentText ~= newText then
-                    row.buttons.ignore.text:SetText(newText)
-                end
-            end
+            UI:UpdateRowDisplay(row, data, false)
             
             if not row:IsShown() then
                 row:Show()
@@ -719,7 +918,7 @@ function UI:CreateAddPlayerForm(parent)
     noteLabel:SetTextColor(ELVUI_COLORS.ACCENT[1], ELVUI_COLORS.ACCENT[2], ELVUI_COLORS.ACCENT[3])
     
     local noteBox = CreateFrame("EditBox", nil, form)
-    noteBox:SetSize(200, 24)
+    noteBox:SetSize(180, 24)
     noteBox:SetPoint("LEFT", noteLabel, "RIGHT", 8, 0)
     noteBox:SetAutoFocus(false)
     noteBox:SetFontObject(GameFontNormal)
@@ -858,105 +1057,24 @@ end
 
 
 function UI:CreatePlayerInfoFrame()
-    local f = CreateFrame("Frame", "RepListPlayerInfoFrameElvUI", UIParent)
-    f:SetSize(400, 350)
-    f:SetPoint("CENTER")
-    f:SetFrameStrata("DIALOG")
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:SetClampedToScreen(true)
-    f:RegisterForDrag("LeftButton")
+    local function applyElvUIStyle(frame, elementType, element)
+        if elementType == "frame" then
+            StyleElvUIFrame(frame)
+            frame:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
+        elseif elementType == "editbox" then
+            StyleElvUIEditBox(element)
+        elseif elementType == "button" then
+            StyleElvUIButton(element)
+        elseif elementType == "closebutton" then
+            StyleElvUIButton(element)
+        end
+    end
     
-    StyleElvUIFrame(f)
-    f:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
-    
-    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-    
-    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    f.title:SetPoint("TOP", 0, -15)
-    f.title:SetTextColor(1, 0, 0)
-    f.title:SetText(L["UI_POP1"] .. "BLACKLIST")
-    
-    f.factionLogo = f:CreateTexture(nil, "ARTWORK")
-    f.factionLogo:SetSize(80, 80)
-    f.factionLogo:SetPoint("TOPLEFT", 20, -50)
-    
-    local startY = -50
-    local leftX = 110
-    
-    f.nameLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.nameLabel:SetPoint("TOPLEFT", leftX, startY)
-    f.nameLabel:SetText(L["UI_LBL_NM"])
-    
-    f.nameValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.nameValue:SetPoint("LEFT", f.nameLabel, "RIGHT", 5, 0)
-    f.nameValue:SetWidth(200)
-    f.nameValue:SetJustifyH("LEFT")
-    
-    f.classLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.classLabel:SetPoint("TOPLEFT", leftX, startY - 25)
-    f.classLabel:SetText(L["UI_LBL_CL"])
-    
-    f.classValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.classValue:SetPoint("LEFT", f.classLabel, "RIGHT", 5, 0)
-    
-    f.raceLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.raceLabel:SetPoint("TOPLEFT", leftX, startY - 45)
-    f.raceLabel:SetText(L["UI_LBL_RC"])
-    
-    f.raceValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.raceValue:SetPoint("LEFT", f.raceLabel, "RIGHT", 5, 0)
-    
-    f.levelLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.levelLabel:SetPoint("TOPLEFT", leftX, startY - 65)
-    f.levelLabel:SetText(L["UI_CB45"])
-    
-    f.levelValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.levelValue:SetPoint("LEFT", f.levelLabel, "RIGHT", 5, 0)
-    
-    f.guildLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.guildLabel:SetPoint("TOPLEFT", leftX, startY - 85)
-    f.guildLabel:SetText(L["UI_LBL_GLD"])
-    
-    f.guildValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.guildValue:SetPoint("LEFT", f.guildLabel, "RIGHT", 5, 0)
-    f.guildValue:SetWidth(200)
-    f.guildValue:SetJustifyH("LEFT")
-    
-    f.guidLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.guidLabel:SetPoint("TOPLEFT", 20, startY - 110)
-    f.guidLabel:SetText("|cFFFFFF00GUID:|r")
-    
-    f.guidValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.guidValue:SetPoint("LEFT", f.guidLabel, "RIGHT", 5, 0)
-    f.guidValue:SetWidth(300)
-    f.guidValue:SetJustifyH("LEFT")
-    
-    f.noteLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.noteLabel:SetPoint("TOPLEFT", 20, -175)
-    f.noteLabel:SetText(L["UI_LBL_NT"])
-    
-    f.noteText = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.noteText:SetPoint("TOPLEFT", 20, -195)
-    f.noteText:SetPoint("BOTTOMRIGHT", -20, 40)
-    f.noteText:SetJustifyH("LEFT")
-    f.noteText:SetJustifyV("TOP")
-    f.noteText:SetTextColor(1, 1, 0.5)
-    
-    local closeBtn = CreateFrame("Button", nil, f)
-    closeBtn:SetSize(100, 25)
-    closeBtn:SetPoint("BOTTOM", 0, 10)
-    StyleElvUIButton(closeBtn)
-    
-    local closeBtnText = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    closeBtnText:SetPoint("CENTER")
-    closeBtnText:SetText("Закрыть")
-    
-    closeBtn:SetScript("OnClick", function() f:Hide() end)
-    
-    f:Hide()
-    return f
+    return Common.CreatePlayerCardBase(L, {
+        frameName = "RepListPlayerInfoFrameElvUI",
+        applyStyle = applyElvUIStyle,
+        withArmoryLink = true
+    })
 end
 
 function UI:ShowPlayerInfo(data)
@@ -1003,27 +1121,91 @@ function UI:ShowPlayerInfo(data)
         f.factionLogo:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
     end
     
-    f.nameValue:SetText(data.name or "Неизвестно")
+    f.nameValue:SetText(data.name or L["UI_F_UN"])
     f.nameValue:SetTextColor(classColor.r, classColor.g, classColor.b)
-    f.classValue:SetText(data.class or "Неизвестен")
-    f.raceValue:SetText(data.race or "Неизвестна")
+    f.classValue:SetText(data.class or L["UI_F_UNO"])
+    f.raceValue:SetText(data.race or L["UI_F_UN2"])
     f.levelValue:SetText(tostring(data.level or "?"))
-    f.guildValue:SetText(data.guild or "Нет")
-    f.guidValue:SetText(data.guid or "Не записан")
-    f.noteText:SetText(data.note or "Без заметки")
+    f.guildValue:SetText(data.guild or L["UI_NO"])
+    f.guidValue:SetText(data.guid or L["UI_F_V"])
     
-    if STATE.currentTab == "blacklist" then
-        f.title:SetText("ВНИМАНИЕ - BLACKLIST")
+    f.currentPlayerData = data
+    
+    f.armoryLinkEditBox:SetText(data.armoryLink or "")
+    f.armoryLinkEditBox:SetCursorPosition(0)
+    
+    f.armoryLinkSaveBtn:SetScript("OnClick", function(self)
+        local newLink = f.armoryLinkEditBox:GetText()
+        local playerData = f.currentPlayerData
+        
+        if not playerData or not playerData.name then
+            print(L["WH_D06"])
+            return
+        end
+        
+        local realmData = RL:GetRealmData()
+        
+        local listType = playerData.listType or STATE.currentTab
+        if listType == "whohere" or STATE.showGroupMembers then
+            local searchKey = string.lower(RL.NormalizeName(playerData.name))
+            if realmData.blacklist[searchKey] then
+                listType = "blacklist"
+            elseif realmData.whitelist[searchKey] then
+                listType = "whitelist"
+            elseif realmData.notelist[searchKey] then
+                listType = "notelist"
+            else
+
+                if not ReputationGroupTrackerDB then
+                    ReputationGroupTrackerDB = {}
+                end
+                if not ReputationGroupTrackerDB.whoHereCache then
+                    ReputationGroupTrackerDB.whoHereCache = {}
+                end
+                
+                local key = string.lower(RL.NormalizeName(playerData.name))
+                if not ReputationGroupTrackerDB.whoHereCache[key] then
+                    ReputationGroupTrackerDB.whoHereCache[key] = {}
+                end
+                ReputationGroupTrackerDB.whoHereCache[key].armoryLink = newLink
+                
+                print(L["WH_SV"] .. playerData.name)
+                return
+            end
+        end
+        
+        if listType and realmData[listType] then
+            local key = string.lower(playerData.name)
+            if realmData[listType][key] then
+                realmData[listType][key].armoryLink = newLink
+                RL:SaveSettings()
+                print(L["WH_SV"] .. playerData.name)
+            end
+        end
+    end)
+    
+    f.noteText:SetText(data.note or L["UI_F_N"])
+    
+    if STATE.showGroupMembers and not data.inList then
+        f.title:SetText(L["UI_POP_GROUP"])
+        f.title:SetTextColor(0.5, 0.7, 1)
+        f:SetBackdropBorderColor(0.5, 0.7, 1, 1)
+    elseif STATE.currentTab == "blacklist" or (data.inList and data.listType == "blacklist") then
+        f.title:SetText(L["UI_POP1"] .. "- BLACKLIST")
         f.title:SetTextColor(1, 0, 0)
         f:SetBackdropBorderColor(0.8, 0.1, 0.1, 1)
-    elseif STATE.currentTab == "whitelist" then
-        f.title:SetText("ДОВЕРЕННЫЙ - WHITELIST")
+    elseif STATE.currentTab == "whitelist" or (data.inList and data.listType == "whitelist") then
+        f.title:SetText(L["UI_POP2"] .. "- WHITELIST")
         f.title:SetTextColor(0, 1, 0)
         f:SetBackdropBorderColor(0.1, 0.8, 0.1, 1)
-    elseif STATE.currentTab == "notelist" then
-        f.title:SetText("ЗАМЕТКА - NOTELIST")
+    elseif STATE.currentTab == "notelist" or (data.inList and data.listType == "notelist") then
+        f.title:SetText(L["UI_POP3"] .. "- NOTELIST")
         f.title:SetTextColor(1, 0.84, 0)
         f:SetBackdropBorderColor(1, 0.84, 0, 1)
+    else
+        f.title:SetText(L["UI_INF"])
+        f.title:SetTextColor(1, 1, 1)
+        f:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
     end
     
     f:Show()
@@ -1086,12 +1268,12 @@ function UI:CreateSettingsPanel(parent)
     yOffset = yOffset - 35
     
     local notifyHeader = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    notifyHeader:SetPoint("TOPLEFT", 10, yOffset)
+    notifyHeader:SetPoint("TOPLEFT", 20, yOffset)
     notifyHeader:SetText(L["UI_UVD"])
     notifyHeader:SetTextColor(1, 1, 0)
     
     local protectionHeader = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    protectionHeader:SetPoint("TOPLEFT", 260, yOffset)
+    protectionHeader:SetPoint("TOPLEFT", 270, yOffset)
     protectionHeader:SetText(L["UI_DEF"])
     protectionHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 25
@@ -1607,7 +1789,7 @@ function UI:CreateExportImportFrames()
     ef.title = ef:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     ef.title:SetPoint("TOP", 0, -10)
     ef.title:SetText(L["UI_CB9"])
-    ef.title:SetTextColor(1, 0.82, 0)  -- Золотой цвет
+    ef.title:SetTextColor(1, 0.82, 0)
     
     local scroll = CreateFrame("ScrollFrame", "RepExportScrollElvUI", ef, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", 16, -40)
@@ -1681,7 +1863,7 @@ function UI:CreateExportImportFrames()
     inf.title = inf:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     inf.title:SetPoint("TOP", 0, -10)
     inf.title:SetText(L["UI_CB10"])
-    inf.title:SetTextColor(1, 0.82, 0)  -- Золотой цвет
+    inf.title:SetTextColor(1, 0.82, 0)
     
     local scroll2 = CreateFrame("ScrollFrame", "RepImportScrollElvUI", inf, "UIPanelScrollFrameTemplate")
     scroll2:SetPoint("TOPLEFT", 16, -40)
@@ -1828,6 +2010,74 @@ function UI:Initialize()
     end)
     
 end
+
+function UI:RefreshGroupMembersList()
+    if not RL.GroupTracker then return end
+    
+    if RL.GroupTracker.ForceUpdate then
+        RL.GroupTracker:ForceUpdate()
+    end
+    
+    if CACHE.actionPanel then CACHE.actionPanel:Show() end
+    if CACHE.settingsPanel then CACHE.settingsPanel:Hide() end
+    if CACHE.scrollFrame then CACHE.scrollFrame:Show() end
+    if CACHE.addPlayerForm then CACHE.addPlayerForm:Hide() end
+    if CACHE.tableHeader then CACHE.tableHeader:Show() end
+    
+    local members = RL.GroupTracker:GetAllGroupMembersWithListInfo()
+    
+    for i = #CACHE.filteredPlayers, 1, -1 do
+        CACHE.filteredPlayers[i] = nil
+    end
+    
+    local count = 0
+    for _, member in ipairs(members) do
+        if STATE.searchText == "" or 
+           member.name:lower():find(STATE.searchText, 1, true) or
+           (member.note and member.note:lower():find(STATE.searchText, 1, true)) then
+            count = count + 1
+            CACHE.filteredPlayers[count] = member
+        end
+    end
+    
+    local title = "Reputation List - " .. (L["UI_WHO_HERE"] or "Кто здесь?") .. " (" .. count .. ")"
+    if CACHE.mainFrame and CACHE.mainFrame.titleText then
+        CACHE.mainFrame.titleText:SetText(title)
+    end
+    
+    if CACHE.scrollbar then
+        local maxScroll = math.max(0, count - CONFIG.VISIBLE_ROWS)
+        CACHE.scrollbar:SetMinMaxValues(0, maxScroll)
+    end
+    
+    UI:UpdateGroupMembersVisibleRows()
+end
+
+function UI:UpdateGroupMembersVisibleRows()
+    local players = CACHE.filteredPlayers or STATE.filteredPlayers or {}
+    
+    for i = 1, CONFIG.VISIBLE_ROWS do
+        local row = CACHE.rows[i]
+        if not row then break end
+        
+        local dataIndex = STATE.scrollOffset + i
+        
+        if dataIndex <= #players then
+            local data = players[dataIndex]
+            UI:UpdateRowDisplay(row, data, true)
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
+end
+
+function UI:OnGroupUpdate()
+    if STATE.showGroupMembers then
+        UI:RefreshList()
+    end
+end
+
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")

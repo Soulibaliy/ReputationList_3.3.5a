@@ -128,6 +128,9 @@ icon:SetScript("OnClick", function(self, button)
             -- Открываем основной UI
             OpenAddonUI()
         end
+	 elseif button == "MiddleButton" then
+        icon:Hide()
+        ReputationTrackerDB.hidden = true
     end
 end)
 

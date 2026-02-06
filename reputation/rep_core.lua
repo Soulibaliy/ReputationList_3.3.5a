@@ -1,6 +1,6 @@
 ReputationList = ReputationList or {}
 local RL = ReputationList
-RL.version = "1.65b"
+RL.version = "1.70"
 if not RL.SanitizeString then
     error("Security module not loaded! Check .toc file order.")
 end
@@ -157,7 +157,7 @@ local function CheckGUIDConflict(playerName, guid, listName, realmData, note)
         local foundKey, foundData = FindEntryByGUID(list, guid)
         if foundKey and foundData then
             if foundKey ~= key then
-                print("|cFFFFAA00ReputationList:|r Обнаружена смена ника: " .. (foundData.name or foundKey) .. " -> " .. playerName)
+                print("|cFFFFAA00ReputationList:|r " .. L["NICK_CHANGE_DETECTED"] .. (foundData.name or foundKey) .. " -> " .. playerName)
                 return listType, foundKey, foundData, true
             else
                 return listType, foundKey, foundData, false
@@ -178,7 +178,7 @@ local function ApplyNameChange(guidListType, guidKey, guidData, playerName, key,
         targetListType = "notelist"
     end
 
-    print("|cFFFFAA00Обновляю запись вместо создания дубликата|r")
+    print(L["INFO_R05"])
 
     local oldList = realmData[guidListType]
     oldList[guidKey] = nil
@@ -198,7 +198,7 @@ local function ApplyNameChange(guidListType, guidKey, guidData, playerName, key,
 
     if guidListType ~= targetListType then
         local oldListName = guidListType:gsub("^%l", string.upper)
-        print("|cFFFFAA00Перемещение из " .. oldListName .. " в " .. listName .. "|r")
+        print(L["WH_D08"] .. oldListName .. L["WH_D09"] .. listName .. "|r")
         targetList[key] = guidData
         oldList[key] = nil
     end
@@ -206,12 +206,12 @@ local function ApplyNameChange(guidListType, guidKey, guidData, playerName, key,
     if not batchMode then
         RL.InvalidateCache()
         RL:SaveSettings()
-        print("|cFF00FF00ReputationList:|r Игрок " .. playerName .. " обновлён в " .. listName)
+        print(L["WH_D11"] .. playerName .. L["WH_D10"] .. listName)
     end
     return true
 end
 
-local function GetPlayerInfo(unit)
+function RL.GetPlayerInfo(unit)
     local info = {}
     
     local rawGUID = UnitGUID(unit)
@@ -227,6 +227,11 @@ local function GetPlayerInfo(unit)
     info.guild = GetGuildInfo(unit) or nil
     info.faction = UnitFactionGroup(unit)
     return info
+end
+
+
+local function GetPlayerInfo(unit)
+    return RL.GetPlayerInfo(unit)
 end
 
 local function GetFactionByRace(race)
@@ -258,7 +263,7 @@ local function GetFactionByRace(race)
     return nil
 end
 
-local function FindPlayerInGroup(playerName)
+function RL.FindPlayerInGroup(playerName)
     if not playerName then return nil end
     
     local normName = RL.NormalizeName(playerName)
@@ -294,9 +299,13 @@ local function FindPlayerInGroup(playerName)
     return nil
 end
 
+local function FindPlayerInGroup(playerName)
+    return RL.FindPlayerInGroup(playerName)
+end
+
 function RL:ImportFromBlacklist()
     if not BlackListedPlayers then
-        print("|cFFFF0000ReputationList:|r Аддон Blacklist не найден или не загружен")
+        print(L["WH_W01"])
         return
     end
     
@@ -370,7 +379,7 @@ end
 
 function RL:ImportFromElitist()
     if not ElitistGroupDB or not ElitistGroupDB.faction then
-        print("|cFFFF0000ReputationList:|r Аддон Elitist не найден или не загружен")
+        print(L["WH_W02"])
         return
     end
     
@@ -423,7 +432,7 @@ end
 
 function RL:ImportFromIgnoreMore()
     if not IgM_SV or not IgM_SV.list then
-        print("|cFFFF0000ReputationList:|r Аддон IgnoreMore не найден или не содержит данных")
+        print(L["WH_W03"])
         return
     end
 
@@ -493,7 +502,7 @@ local function MigrateOldData()
         
         ReputationListDB = newDB
         
-        print("|cFF00FF00ReputationList:|r Миграция завершена! Данные перенесены на realm: " .. currentRealm)
+        print(L["WH_W04"] .. currentRealm)
     end
 end
 
@@ -635,6 +644,8 @@ SlashCmdList["RLIST"] = function(msg)
         RL:RemovePlayer(args[2], args[3])
     elseif cmd == "check" then
         RL:CheckPlayer(args[2])
+    elseif cmd == "kick" then
+        RL:KickPlayer(args[2])
     elseif cmd == "notify" then
         RL:ManualNotify()
     elseif cmd == "auto" then
@@ -680,10 +691,10 @@ SlashCmdList["RLIST"] = function(msg)
                 if ui.UpdateList and ui.frame:IsShown() then pcall(function() ui:UpdateList() end) end
             end
         else
-            print("|cFFFFAA00ReputationList:|r UI модуль не найден.")
+            print(L["WH_W05"])
         end
     else
-        print("|cFFFF0000ReputationList:|r Неизвестная команда. Используйте /rlist help")
+        print(L["WH_W06"])
     end
 end
 
@@ -693,6 +704,7 @@ function RL:ShowHelp()
 	print(L["UI_CB64"])
 	print(L["UI_CB65"])
 	print(L["UI_CB66"])
+	print(L["UI_CB66_1"])
 	print(L["UI_CB67"])
 	print(L["UI_CB68"])
 	print(L["UI_CB69"])
@@ -704,6 +716,7 @@ function RL:ShowHelp()
 	print(L["UI_CB75"])
 	print(L["UI_CB76"])
 	print(L["UI_CB77"])
+	print(L["UI_CB85"])
 end
 
 function RL:FindPlayerInAllLists(playerName)
@@ -738,7 +751,7 @@ function RL:AddPlayer(args)
     
     local validName, err = RL.ValidatePlayerName(playerName)
     if not validName then
-        print("|cFFFF0000ReputationList:|r " .. (err or "Некорректное имя игрока"))
+        print("|cFFFF0000ReputationList:|r " .. (err or L["INVALID_NAME"]))
         return
     end
     playerName = validName
@@ -760,7 +773,7 @@ function RL:AddPlayer(args)
         targetList = realmData.notelist
         listName = "Notelist"
     else
-        print("|cFFFF0000ReputationList:|r Неверный тип списка")
+        print("|cFFFF0000ReputationList:|r " .. L["INVALID_LIST_TYPE"])
         return
     end
     
@@ -810,6 +823,7 @@ function RL:AddPlayer(args)
         level = nil,
         guild = nil,
         faction = nil,
+        armoryLink = nil,
         key = key:gsub("[^%w]", ""):lower()
     }
     
@@ -820,9 +834,9 @@ function RL:AddPlayer(args)
             if currentInfo.guid ~= existingData.guid then
                 canCopyData = false
                 
-                print("|cFFFF0000[RepList]|r КОНФЛИКТ GUID: В базе уже есть игрок с ником '" .. playerName .. "'!")
-                print("|cFFFF0000Старый GUID: " .. existingData.guid .. "|r")
-                print("|cFFFF0000Новый GUID: " .. currentInfo.guid .. "|r")
+                print(L["WH_W07"] .. playerName .. "'!")
+                print(L["WH_W08"] .. existingData.guid .. "|r")
+                print(L["WH_W09"] .. currentInfo.guid .. "|r")
                 
                 local oldKey = string.lower(playerName)
                 local guidSuffix = existingData.guid:sub(-8)
@@ -838,9 +852,9 @@ function RL:AddPlayer(args)
                         oldList[unknownKey] = existingData
                         oldList[oldKey] = nil
                         
-                        print("|cFFFFAA00Старая запись переименована в: " .. unknownName .. "|r")
-                        print("|cFFFFAA00При следующей встрече со старым игроком его ник обновится автоматически.|r")
-                        print("|cFFFFAA00Новый игрок '" .. playerName .. "' будет добавлен.|r")
+                        print(L["WH_W10"] .. unknownName .. "|r")
+                        print(L["WH_W11"])
+                        print(L["WH_W12"] .. playerName .. L["WH_W13"])
                         
                         RL.InvalidateCache()
                         RL:SaveSettings()
@@ -856,6 +870,7 @@ function RL:AddPlayer(args)
             playerData.level = existingData.level
             playerData.guild = existingData.guild
             playerData.faction = existingData.faction
+            playerData.armoryLink = existingData.armoryLink
             
             if existingListType and existingListType ~= listType then
                 local oldList = realmData[existingListType]
@@ -882,24 +897,24 @@ function RL:AddPlayer(args)
     if not self.batchMode then
         RL.InvalidateCache()
         RL:SaveSettings()
-        print("|cFF00FF00ReputationList:|r Игрок " .. playerName .. " добавлен в " .. listName)
+        print(L["WH_W14"] .. playerName .. L["WH_W15"] .. listName)
     end
 end
 
-function RL:AddPlayerDirect(playerName, listType, note, unit)
+function RL:AddPlayerDirect(playerName, listType, note, unit, cachedPlayerData)
     if not playerName or playerName == "" then
-        print("|cFFFF0000ReputationList:|r Не указано имя игрока")
+        print("|cFFFF0000ReputationList:|r " .. L["NO_PLAYER_NAME"])
         return
     end
     
     local validName, err = RL.ValidatePlayerName(playerName)
     if not validName then
-        print("|cFFFF0000ReputationList:|r " .. (err or "Некорректное имя игрока"))
+        print("|cFFFF0000ReputationList:|r " .. (err or L["INVALID_NAME"]))
         return
     end
     playerName = validName
     
-    note = RL.SanitizeString(note or "Без заметки", 200)
+    note = RL.SanitizeString(note or L["UI_F_N"], 200)
     
     local targetList, listName
     local realmData = RL:GetRealmData()
@@ -914,7 +929,7 @@ function RL:AddPlayerDirect(playerName, listType, note, unit)
         targetList = realmData.notelist
         listName = "Notelist"
     else
-        print("|cFFFF0000ReputationList:|r Неверный тип списка")
+        print("|cFFFF0000ReputationList:|r " .. L["INVALID_LIST_TYPE"])
         return
     end
     
@@ -953,6 +968,7 @@ function RL:AddPlayerDirect(playerName, listType, note, unit)
         level = nil,
         guild = nil,
         faction = nil,
+        armoryLink = nil,
         key = key:gsub("[^%w]", ""):lower()
     }
     
@@ -962,8 +978,8 @@ function RL:AddPlayerDirect(playerName, listType, note, unit)
         if currentInfo and currentInfo.guid and existingData.guid then
             if currentInfo.guid ~= existingData.guid then
                 canCopyData = false
-                print("|cFFFF9900[RepList]|r ВНИМАНИЕ: Обнаружен новый игрок с ником '" .. playerName .. "'")
-                print("|cFFFF9900Старый игрок остался в " .. existingListType .. ", новый добавлен в " .. listName .. "|r")
+                print(L["WEM01"] .. playerName .. "'")
+                print(L["WEM02"] .. existingListType .. L["WEM03"] .. listName .. "|r")
             end
         end
         
@@ -975,6 +991,7 @@ function RL:AddPlayerDirect(playerName, listType, note, unit)
             playerData.guild = existingData.guild
             playerData.faction = existingData.faction
             
+            playerData.armoryLink = existingData.armoryLink
             if existingListType and existingListType ~= listType then
                 local oldList = realmData[existingListType]
                 if oldList then
@@ -991,6 +1008,13 @@ function RL:AddPlayerDirect(playerName, listType, note, unit)
         if currentInfo.level then playerData.level = currentInfo.level end
         if currentInfo.guild then playerData.guild = currentInfo.guild end
         if currentInfo.faction then playerData.faction = currentInfo.faction end
+    elseif cachedPlayerData then
+        if cachedPlayerData.guid then playerData.guid = cachedPlayerData.guid end
+        if cachedPlayerData.class then playerData.class = cachedPlayerData.class end
+        if cachedPlayerData.race then playerData.race = cachedPlayerData.race end
+        if cachedPlayerData.level then playerData.level = cachedPlayerData.level end
+        if cachedPlayerData.guild then playerData.guild = cachedPlayerData.guild end
+        if cachedPlayerData.faction then playerData.faction = cachedPlayerData.faction end
     end
     
     targetList[key] = playerData
@@ -1002,7 +1026,7 @@ function RL:AddPlayerDirect(playerName, listType, note, unit)
     if not self.batchMode then
         RL.InvalidateCache()
         RL:SaveSettings()
-        print("|cFF00FF00ReputationList:|r Игрок " .. playerName .. " добавлен в " .. listName)
+        print(L["WH_D11"] .. playerName .. L["WH_W15"] .. listName)
     end
 end
 
@@ -1018,7 +1042,7 @@ function RL:AddPlayersBatch(players, listType)
     local added = 0
     for _, playerData in ipairs(players) do
         local name = playerData.name or playerData
-        local note = playerData.note or "Без заметки"
+        local note = playerData.note or L["UI_F_N"]
         local guid = playerData.guid
         
         if self:AddPlayerDirect(name, listType, note) then
@@ -1040,13 +1064,13 @@ function RL:AddPlayersBatch(players, listType)
     end
     
     
-    print(string.format("|cFF00FF00[RepList]|r Добавлено %d игроков в %s", added, listType))
+    print(string.format("|cFF00FF00[RepList]|r " .. L["PLAYERS_ADDED"], added, listType))
     return true
 end
 
 function RL:RemovePlayer(listType, playerName)
     if not listType or not playerName then
-        print("|cFFFF0000ReputationList:|r Использование: /rlist remove [black/white/note] [Имя]")
+        print("|cFFFF0000ReputationList:|r " .. L["REMOVE_USAGE"])
         return
     end
     
@@ -1067,7 +1091,7 @@ function RL:RemovePlayer(listType, playerName)
         targetList = realmData.notelist
         listName = "Notelist"
     else
-        print("|cFFFF0000ReputationList:|r Неверный тип списка")
+        print("|cFFFF0000ReputationList:|r " .. L["INVALID_LIST_TYPE"])
         return
     end
     
@@ -1083,15 +1107,93 @@ function RL:RemovePlayer(listType, playerName)
         
         RL.InvalidateCache()
         
-        print("|cFF00FF00ReputationList:|r Игрок " .. playerName .. " удален из " .. listName)
+        print(L["WH_D11"] .. playerName .. L["WEM04"] .. listName)
     else
-        print("|cFFFF0000ReputationList:|r Игрок " .. playerName .. " не найден в " .. listName)
+        print(L["WH_D11"] .. playerName .. L["WEM05"] .. listName)
+    end
+end
+
+function RL:KickPlayer(target)
+    local playerName
+    
+    if target and target ~= "" then
+        if target:lower() == "target" then
+            playerName = UnitName("target")
+            if not playerName or not UnitIsPlayer("target") then
+                print(L["WEM06"])
+                return
+            end
+        else
+            playerName = target
+        end
+    else
+        playerName = UnitName("target")
+        if not playerName or not UnitIsPlayer("target") then
+            print(L["WEM07"])
+            return
+        end
+    end
+    
+    playerName = RL.NormalizeName(playerName)
+    
+    local foundInGroup = false
+    if UnitInRaid("player") then
+        for i = 1, GetNumRaidMembers() do
+            local name = GetRaidRosterInfo(i)
+            if name and RL.NormalizeName(name):lower() == playerName:lower() then
+                foundInGroup = true
+                break
+            end
+        end
+    elseif GetNumPartyMembers() > 0 then
+        for i = 1, GetNumPartyMembers() do
+            local name = UnitName("party" .. i)
+            if name and RL.NormalizeName(name):lower() == playerName:lower() then
+                foundInGroup = true
+                break
+            end
+        end
+    end
+    
+    if not foundInGroup then
+        print("|cFFFF0000ReputationList:|r " .. playerName .. L["WEM08"])
+        return
+    end
+    
+    RL:AddPlayerDirect(playerName, "blacklist", L["WEM09"], "target")
+    
+    local chatType = "SAY"
+    if UnitInRaid("player") then
+        chatType = "RAID"
+    elseif GetNumPartyMembers() > 0 then
+        chatType = "PARTY"
+    end
+    SendChatMessage(playerName .. L["BLACKLIST_DAL"], chatType)
+    
+    if UnitInRaid("player") then
+        for i = 1, GetNumRaidMembers() do
+            local name = GetRaidRosterInfo(i)
+            if name and RL.NormalizeName(name):lower() == playerName:lower() then
+                UninviteUnit(name)
+                print("|cFFFF0000ReputationList:|r " .. playerName .. L["WEM10"])
+                return
+            end
+        end
+    elseif GetNumPartyMembers() > 0 then
+        for i = 1, GetNumPartyMembers() do
+            local name = UnitName("party" .. i)
+            if name and RL.NormalizeName(name):lower() == playerName:lower() then
+                UninviteUnit(name)
+                print("|cFFFF0000ReputationList:|r " .. playerName .. L["WEM10"])
+                return
+            end
+        end
     end
 end
 
 function RL:CheckPlayer(playerName)
     if not playerName then
-        print("|cFFFF0000ReputationList:|r Использование: /rlist check [Имя]")
+        print(L["WEM11"])
         return
     end
     
@@ -1117,7 +1219,7 @@ function RL:CheckPlayer(playerName)
     end
     
     if not found then
-        print("|cFFFFAA00ReputationList:|r Игрок " .. playerName .. " не найден ни в одном списке.")
+        print(L["WH_W14"] .. playerName .. L["WEM12"])
     end
 end
 
@@ -1146,7 +1248,7 @@ end
 
 function RL:ShowList(listType)
     if not listType then
-        print("|cFFFF0000ReputationList:|r Использование: /rlist list [black/white/note]")
+        print(L["WEM13"])
         return
     end
     
@@ -1167,7 +1269,7 @@ function RL:ShowList(listType)
         listName = "Notelist"
         color = "|cFFFFAA00"
     else
-        print("|cFFFF0000ReputationList:|r Неверный тип списка")
+        print("|cFFFF0000ReputationList:|r " .. L["INVALID_LIST_TYPE"])
         return
     end
     
@@ -1179,9 +1281,9 @@ function RL:ShowList(listType)
     end
     
     if count == 0 then
-        print("|cFFFFFFFFСписок пуст|r")
+        print(L["WEM15"])
     else
-        print("|cFFFFFFFFВсего записей: " .. count .. "|r")
+        print(L["WEM14"] .. count .. "|r")
     end
 end
 
@@ -1189,9 +1291,9 @@ function RL:ToggleAuto()
     RL.autoNotify = not RL.autoNotify
     ReputationListDB.autoNotify = RL.autoNotify
     if RL.autoNotify then
-        print("|cFF00FF00ReputationList:|r Автооповещение в чат группы |cFF00FF00включено|r")
+        print(L["WEM16"])
     else
-        print("|cFFFF0000ReputationList:|r Автооповещение в чат группы |cFFFF0000выключено|r")
+        print(L["WEM17"])
     end
 end
 
@@ -1199,9 +1301,9 @@ function RL:ToggleSelfNotify()
     RL.selfNotify = not RL.selfNotify
     ReputationListDB.selfNotify = RL.selfNotify
     if RL.selfNotify then
-        print("|cFF00FF00ReputationList:|r Оповещение себе в ЛС |cFF00FF00включено|r")
+        print(L["WEM18"])
     else
-        print("|cFFFF0000ReputationList:|r Оповещение себе в ЛС |cFFFF0000выключено|r")
+        print(L["WEM19"])
     end
 end
 
@@ -1209,9 +1311,9 @@ function RL:ToggleColorLFG()
     RL.colorLFG = not RL.colorLFG
     ReputationListDB.colorLFG = RL.colorLFG
     if RL.colorLFG then
-        print("|cFF00FF00ReputationList:|r Окрашивание LFG |cFF00FF00включено|r")
+        print(L["WEM20"])
     else
-        print("|cFFFF0000ReputationList:|r Окрашивание LFG |cFFFF0000выключено|r")
+        print(L["WEM21"])
     end
 end
 
@@ -1222,9 +1324,9 @@ function RL:ToggleSoundNotify()
     ReputationListDB.popupNotify = RL.popupNotify
     
     if RL.soundNotify then
-        print("|cFF00FF00ReputationList:|r Звук и всплывающие окна |cFF00FF00включены|r")
+        print(L["WEM22"])
     else
-        print("|cFFFF0000ReputationList:|r Звук и всплывающие окна |cFFFF0000выключены|r")
+        print(L["WEM23"])
     end
 end
 
@@ -1245,7 +1347,7 @@ function RL:CheckAndUpdatePlayer(name, guid, unit)
 
             if foundKey ~= searchKey then
 
-                print("|cFFFFAA00ReputationList:|r Обнаружена смена ника: " .. (foundData.name or foundKey) .. " -> " .. normName)
+                print("|cFFFFAA00ReputationList:|r" .. L["NICK_CHANGE_DETECTED"] .. (foundData.name or foundKey) .. " -> " .. normName)
                 
                 list[searchKey] = foundData
                 list[foundKey] = nil
@@ -1259,19 +1361,19 @@ function RL:CheckAndUpdatePlayer(name, guid, unit)
                 local info = GetPlayerInfo(unit)
 
                 if info.class and info.class ~= foundData.class then 
-                    print("|cFFFFAA00ReputationList:|r " .. normName .. " сменил класс: " .. (foundData.class or "?") .. " -> " .. info.class)
+                    print("|cFFFFAA00ReputationList:|r " .. normName .. L["CLASS_CHANGED"] .. (foundData.class or "?") .. " -> " .. info.class)
                     foundData.class = info.class
                     updated = true 
                 end
                 if info.race and info.race ~= foundData.race then 
-                    print("|cFFFFAA00ReputationList:|r " .. normName .. " сменил расу: " .. (foundData.race or "?") .. " -> " .. info.race)
+                    print("|cFFFFAA00ReputationList:|r " .. normName .. L["RACE_CHANGED"] .. (foundData.race or "?") .. " -> " .. info.race)
                     foundData.race = info.race
                     updated = true 
                 end
                 if info.level and info.level ~= foundData.level then foundData.level = info.level; updated = true end
                 if info.guild and info.guild ~= foundData.guild then foundData.guild = info.guild; updated = true end
                 if info.faction and info.faction ~= foundData.faction then 
-                    print("|cFFFFAA00ReputationList:|r " .. normName .. " сменил фракцию: " .. (foundData.faction or "?") .. " -> " .. info.faction)
+                    print("|cFFFFAA00ReputationList:|r " .. normName .. L["FACTION_CHANGED"] .. (foundData.faction or "?") .. " -> " .. info.faction)
                     foundData.faction = info.faction
                     updated = true 
                 end
@@ -1305,10 +1407,10 @@ function RL:CheckAndUpdatePlayer(name, guid, unit)
                 
                 if data.guid and info.guid and info.guid ~= data.guid then
 
-                    print("|cFFFF0000[RepList]|r КОНФЛИКТ: Обнаружен другой игрок с ником '" .. normName .. "'!")
-                    print("|cFFFF0000Ожидался GUID: " .. data.guid .. "|r")
-                    print("|cFFFF0000Получен GUID: " .. info.guid .. "|r")
-                    print("|cFFFF0000Старая запись сохранена. Добавьте нового игрока вручную если нужно.|r")
+                    print(L["INFO_R01"] .. normName .. "'!")
+                    print(L["INFO_R02"] .. data.guid .. "|r")
+                    print(L["INFO_R03"] .. info.guid .. "|r")
+                    print(L["INFO_R04"])
                     
 
                     return false
@@ -1468,7 +1570,7 @@ end
                       
                 local isIgnored, exactName = RL.IsInBlizzardIgnore(normName)
                 if isIgnored then
-                    local message = "Blacklist: " .. (exactName or normName) .. " - в черном списке Blizzard"
+                    local message = "Blacklist: " .. (exactName or normName) .. L["BLACKLIST_BL2"]
                     if RL.selfNotify then
                         SendChatMessage(message, "WHISPER", nil, UnitName("player"))
                     end
@@ -1495,25 +1597,25 @@ function RL:KickFromGroup(playerName, note)
     end
     
     if not isLeader then
-        print("|cFFFF0000ReputationList:|r Вы не являетесь лидером группы/рейда")
+        print("|cFFFF0000ReputationList:|r " .. L["NOT_LEADER"])
         return
     end
     
     if InCombatLockdown() then
-        print("|cFFFF0000ReputationList:|r Невозможно исключить игрока во время боя")
+        print("|cFFFF0000ReputationList:|r " .. L["CANNOT_KICK_COMBAT"])
         return
     end
     
-    if not note or note == "" then note = "Даларан - ЧС - до свидания" end
+    if not note or note == "" then note = L["BLACKLIST_DAL"] end
     
     local unit = FindPlayerInGroup(normName)
     RL:AddPlayerDirect(normName, "blacklist", note, unit)
     
     local chatType = GetNumRaidMembers() > 0 and "RAID" or "PARTY"
-    local message = "Blacklist: " .. normName .. ", Даларан - ЧС - до свидания!"
+    local message = "Blacklist: " .. normName .. ", " .. L["BLACKLIST_DAL"]
     SendChatMessage(message, chatType)
     
-    UIErrorsFrame:AddMessage(normName .. " - отправлен в Даларан", 1.0, 0.0, 0.0, 1.0, 5)
+    UIErrorsFrame:AddMessage(normName .. " - " .. L["BLACKLIST_DAL"], 1.0, 0.0, 0.0, 1.0, 5)
     
     if GetNumRaidMembers() > 0 then
         for i = 1, GetNumRaidMembers() do
@@ -1523,7 +1625,7 @@ function RL:KickFromGroup(playerName, note)
                 if checkName == normName then
                     SetRaidRosterSelection(i)
                     UninviteUnit("raid" .. i)
-                    print("|cFF00FF00ReputationList:|r Попытка исключить " .. name .. " из рейда (индекс: " .. i .. ")")
+                    print(L["WEM24"] .. name .. L["WEM26"] .. i .. ")")
                     break
                 end
             end
@@ -1535,7 +1637,7 @@ function RL:KickFromGroup(playerName, note)
                 local checkName = RL.NormalizeName(name)
                 if checkName == normName then
                     UninviteUnit("party" .. i)
-                    print("|cFF00FF00ReputationList:|r Попытка исключить " .. name .. " из группы")
+                    print(L["WEM24"] .. name .. L["WEM25"])
                     break
                 end
             end
@@ -1560,7 +1662,7 @@ local function BlockInvites(name)
         DeclineGroup()
         StaticPopupSpecial_Hide(StaticPopup1)
         
-        print("|cFFFF0000[ReputationList]|r Заблокирован инвайт от игрока из ЧС: " .. normName)
+        print("|cFFFF0000[ReputationList]|r" .. L["BLOCKED_INVITE"] .. normName)
         
         return true
     end
@@ -1830,13 +1932,13 @@ function RL:UpdatePlayerCard(playerName, playerData)
         f.factionLogo:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
     end
 
-    f.nameValue:SetText(playerName or "Неизвестно")
+    f.nameValue:SetText(playerData.name or L["UI_F_UN"])
     f.nameValue:SetTextColor(classColor.r, classColor.g, classColor.b)
-    f.classValue:SetText(playerData.class or "Неизвестен")
-    f.raceValue:SetText(playerData.race or "Неизвестна")
+    f.classValue:SetText(playerData.class or L["UI_F_UNO"])
+    f.raceValue:SetText(playerData.race or L["UI_F_UN2"])
     f.levelValue:SetText(tostring(playerData.level or "?"))
-    f.guildValue:SetText(playerData.guild or "Нет")
-    f.guidValue:SetText(playerData.guid or "Не записан")
+    f.guildValue:SetText(playerData.guild or L["NO"])
+    f.guidValue:SetText(playerData.guid or L["UI_F_V"])
 
     local noteText = playerData.note or L["UI_F_N"]
     f.noteText:SetText(noteText)
@@ -1953,7 +2055,7 @@ function RL:ShowTooltipInfo(playerName)
     else
         local isIgnored = RL.IsInBlizzardIgnore(playerName)
         if isIgnored then
-            GameTooltip:AddLine("|cFFFF0000Blacklist: В ЧС Blizzard|r", 1, 1, 1)
+            GameTooltip:AddLine(L["WEM27"], 1, 1, 1)
             GameTooltip:Show()
         end
     end
@@ -2075,7 +2177,7 @@ StaticPopupDialogs["REPUTATION_ADD_PROMPT_CHAT"] = {
     editBoxWidth = 350,
     OnAccept = function(self, data)
         local note = self.editBox:GetText()
-        if not note or note == "" then note = "Без заметки" end
+        if not note or note == "" then note = L["UI_F_N"] end
         local unit = FindPlayerInGroup(data.name)
         RL:AddPlayerDirect(data.name, data.listType, note, unit)
     end,
@@ -2093,7 +2195,7 @@ StaticPopupDialogs["REPUTATION_KICK_PROMPT"] = {
     maxLetters = 255,
     editBoxWidth = 350,
     OnShow = function(self)
-        self.editBox:SetText("Даларан - ЧС - до свидания")
+        self.editBox:SetText(L["BLACKLIST_DAL"])
     end,
     OnAccept = function(self, data)
         local note = self.editBox:GetText()
@@ -2169,7 +2271,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             SLASH_REPLISTUI2 = "/rlui"
             SlashCmdList["REPLISTUI"] = function()
                 local ui = (RL.UI and RL.UI.ElvUI) or (RL.UI and RL.UI.Classic)
-                if ui and ui.Toggle then ui:Toggle() else print("|cFFFF0000ReputationList:|r UI не готов.") end
+                if ui and ui.Toggle then ui:Toggle() else print(L["WEM42"]) end
             end
         end
         
@@ -2239,7 +2341,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
                     foundData = dataByName
                 else
 
-                    print("|cFFFF9900[RepList]|r В ЧС есть игрок с ником '" .. normName .. "', но GUID другой. Игрок НЕ заблокирован.")
+                    print(L["WEM40"] .. normName .. L["WEM41"])
                     shouldBlock = false
                 end
             elseif not dataByName.guid then
@@ -2257,9 +2359,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         if shouldBlock and foundData then
             if ReputationListDB.blockTrade then
                 CancelTrade()
-                print("|cFFFF0000[RepList]|r Заблокирован трейд от игрока из ЧС: " .. normName)
+                print(L["WEM38"] .. normName)
             else
-                print("|cFFFF0000[RepList]|r Обнаружен трейд от игрока из ЧС: " .. normName)
+                print(L["WEM39"] .. normName)
             end
             
             if RL.ShowPlayerCard and RL.popupNotify and RL.CanShowPopupCard(normName) then
@@ -2323,9 +2425,9 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             if data then
                 if RL.selfNotify then
                     local noteText = (data.note and data.note ~= "") and (" (" .. data.note .. ")") or ""
-                    print("|cFFFFFF00[RepList]|r |cFFFF0000Blacklist:|r |cFF00CCCC" .. normName .. "|r пишет вам!" .. noteText)
+                    print("|cFFFFFF00[RepList]|r |cFFFF0000Blacklist:|r |cFF00CCCC" .. normName .. L["WEM37"] .. noteText)
                     
-                    local selfMsg = "ВНИМАНИЕ! Игрок из ЧЕРНОГО СПИСКА [" .. normName .. "] пишет вам: " .. msg
+                    local selfMsg = L["WEM35"] .. normName .. L["WEM36"] .. msg
                     DEFAULT_CHAT_FRAME:AddMessage("|cFFFF0000" .. selfMsg .. "|r")
                 end
                 
@@ -2388,14 +2490,14 @@ SlashCmdList["RLMAP"] = function()
         end)
         
         if success then
-            print("|cFF00FF00Reputation List:|r иконка миникарты восстановлена.")
+            print(L["WEM30"])
         else
-            print("|cFFFFAA00Reputation List:|r иконка показана, но позиция может быть неверной.")
-            print("|cFFFFAA00Используйте ПКМ для перемещения или /reload для сброса.|r")
+            print(L["WEM31"])
+            print(L["WEM32"])
         end
     else
-        print("|cFFFF0000Reputation List:|r иконка миникарты ещё не создана.")
-        print("|cFFFFAA00Настройки сохранены. Выполните /reload или перезайдите.|r")
+        print(L["WEM33"])
+        print(L["WEM34"])
     end
 end
 
@@ -2443,7 +2545,7 @@ function RL:CheckMouseoverUnit()
         
         local searchKey = string.lower(normName)
         if foundKey ~= searchKey then
-            print("|cFFFFAA00ReputationList:|r Обнаружена смена ника: " .. (foundData.name or foundKey) .. " -> " .. normName)
+            print("|cFFFFAA00ReputationList:|r" .. L["NICK_CHANGE_DETECTED"] .. (foundData.name or foundKey) .. " -> " .. normName)
             
             local realmData = self:GetRealmData()
             local list = realmData[foundListType]
@@ -2497,9 +2599,9 @@ function RL:CheckMouseoverUnit()
                 
                 if data.guid and info.guid and info.guid ~= data.guid then
 
-                    print("|cFFFF0000[RepList]|r КОНФЛИКТ при наведении: Игрок '" .. normName .. "' имеет другой GUID!")
-                    print("|cFFFF0000Ожидался GUID: " .. data.guid .. "|r")
-                    print("|cFFFF0000Получен GUID: " .. info.guid .. "|r")
+                    print(L["WEM28"] .. normName .. L["WEM29"])
+                    print(L["INFO_R02"] .. data.guid .. "|r")
+                    print(L["INFO_R03"] .. info.guid .. "|r")
                     
                     local realmData = self:GetRealmData()
                     local list = realmData[listType]
@@ -2515,7 +2617,7 @@ function RL:CheckMouseoverUnit()
                     list[unknownKey] = data
                     list[oldKey] = nil
                     
-                    print("|cFFFFAA00Старая запись переименована в: " .. unknownName .. "|r")
+                    print(L["WH_W10"] .. unknownName .. "|r")
                     
                     RL.InvalidateCache()
                     self:SaveSettings()
@@ -2610,7 +2712,7 @@ tooltipFrame:SetScript("OnEvent", function(self, event)
                 if status then
                     GameTooltip:AddLine(" ")
                     
-                    local displayNote = (note and note ~= "") and note or "Без заметки"
+                    local displayNote = (note and note ~= "") and note or L["UI_F_N"]
 
 					if status == "blacklist" then
 						GameTooltip:AddLine("|cFFFF0000Blacklist:|r " .. displayNote, 1, 1, 1)
@@ -2650,6 +2752,17 @@ SLASH_RLCLEAN1 = "/rlclean"
 SlashCmdList["RLCLEAN"] = function()
     RL.CleanupMemory()
     print("|cFF00FF00[RepList]|r Память очищена вручную")
+end
+
+SLASH_RLCLEARWHO1 = "/rlclearwho"
+SLASH_RLCLEARWHO2 = "/rlочистить"
+SlashCmdList["RLCLEARWHO"] = function()
+    if RL.GroupTracker and RL.GroupTracker.ClearWhoHereCache then
+        RL.GroupTracker:ClearWhoHereCache()
+        print("|cFF00FF00[RepList]|r Список 'Кто здесь?' очищен")
+    else
+        print("|cFFFF0000[RepList]|r Ошибка: GroupTracker не найден")
+    end
 end
 
 eventFrame:RegisterEvent("ADDON_LOADED")

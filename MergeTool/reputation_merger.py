@@ -94,9 +94,43 @@ class ReputationMerger:
         with open(filepath, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # Extract tracker data
-        tracker_match = re.search(r'ReputationTrackerDB\s*=\s*\{[^}]*\["minimapAngle"\]\s*=\s*([-\d.]+)', content)
-        tracker_angle = float(tracker_match.group(1)) if tracker_match else 180.0
+        # Extract ReputationTrackerDB - сохраняем как есть
+        tracker_db = None
+        tracker_start = content.find('ReputationTrackerDB')
+        if tracker_start != -1:
+            # Находим начало таблицы
+            brace_start = content.find('{', tracker_start)
+            if brace_start != -1:
+                # Ищем закрывающую скобку
+                brace_count = 1
+                pos = brace_start + 1
+                while pos < len(content) and brace_count > 0:
+                    if content[pos] == '{':
+                        brace_count += 1
+                    elif content[pos] == '}':
+                        brace_count -= 1
+                    pos += 1
+                if brace_count == 0:
+                    tracker_db = content[tracker_start:pos]
+        
+        # Extract ReputationGroupTrackerDB - сохраняем как есть
+        group_tracker_db = None
+        group_start = content.find('ReputationGroupTrackerDB')
+        if group_start != -1:
+            # Находим начало таблицы
+            brace_start = content.find('{', group_start)
+            if brace_start != -1:
+                # Ищем закрывающую скобку
+                brace_count = 1
+                pos = brace_start + 1
+                while pos < len(content) and brace_count > 0:
+                    if content[pos] == '{':
+                        brace_count += 1
+                    elif content[pos] == '}':
+                        brace_count -= 1
+                    pos += 1
+                if brace_count == 0:
+                    group_tracker_db = content[group_start:pos]
         
         # Initialize data structure
         reputation_data = {
@@ -111,15 +145,17 @@ class ReputationMerger:
             'initialized': True,
             'blockTrade': False,
             'blockInvites': False,
-            'realms': {}
+            'realms': {},
+            'tracker_db': tracker_db,
+            'group_tracker_db': group_tracker_db
         }
         
         # Extract cardPositions
         card_match = re.search(r'\["cardPositions"\]\s*=\s*\{([^}]*)\}', content)
         if card_match:
             card_content = card_match.group(1)
-            y_match = re.search(r'\["y"\]\s*=\s*([\d.]+)', card_content)
-            x_match = re.search(r'\["x"\]\s*=\s*([\d.]+)', card_content)
+            y_match = re.search(r'\["y"\]\s*=\s*([-\d.]+)', card_content)
+            x_match = re.search(r'\["x"\]\s*=\s*([-\d.]+)', card_content)
             if y_match and x_match:
                 reputation_data['cardPositions'] = {
                     'y': float(y_match.group(1)),
@@ -127,7 +163,7 @@ class ReputationMerger:
                 }
         
         # Extract boolean settings
-        for field in ['autoNotify', 'popupNotify', 'colorLFG', 'soundNotify', 'filterMessages', 'selfNotify', 'blockTrade', 'blockInvites']:
+        for field in ['autoNotify', 'popupNotify', 'colorLFG', 'soundNotify', 'filterMessages', 'selfNotify', 'blockTrade', 'blockInvites', 'initialized']:
             match = re.search(rf'\["{field}"\]\s*=\s*(true|false)', content)
             if match:
                 reputation_data[field] = (match.group(1) == 'true')
@@ -137,41 +173,35 @@ class ReputationMerger:
         if ui_match:
             reputation_data['uiMode'] = ui_match.group(1)
         
-        # Find realms section
-        realms_pattern = r'\["realms"\]\s*=\s*\{(.*?)\},\s*\["(?:selfNotify|initialized)'
+        # Find realms section - ищем внутри ReputationListDB
+        # Паттерн должен учитывать возможные запятые после списков
+        realms_pattern = r'\["realms"\]\s*=\s*\{(.*?)\n\t\},?\s*\n\t\["(?:selfNotify|initialized|blockInvites|blockTrade)'
         realms_match = re.search(realms_pattern, content, re.DOTALL)
         
-        if not realms_match:
-            return reputation_data, tracker_angle
+        if realms_match:
+            realms_content = realms_match.group(1)
+            # Extract realms
+            reputation_data['realms'] = self.extract_realms(realms_content)
         
-        realms_content = realms_match.group(1)
-        
-        # Extract realms
-        reputation_data['realms'] = self.extract_realms(realms_content)
-        
-        return reputation_data, tracker_angle
+        return reputation_data
     
     def extract_realms(self, realms_content):
         """Extract realm data from realms section"""
         realms = {}
         
-        # Find all realm entries - need to be more careful about nested structures
-        # Pattern: find ["realm_name"] = { and then find its matching closing brace
-        
-        # First, let's find all potential realm starts
+        # Find all realm entries
         realm_pattern = r'\["([^"]+)"\]\s*=\s*\{'
         potential_realms = list(re.finditer(realm_pattern, realms_content))
         
         if not potential_realms:
             return realms
         
-        processed_positions = set()  # Track which positions we've already processed
+        processed_positions = set()
         
         for i, realm_match in enumerate(potential_realms):
             realm_name = realm_match.group(1)
             start_pos = realm_match.end()
             
-            # Skip if we've already processed this position as part of another realm
             if realm_match.start() in processed_positions:
                 continue
             
@@ -195,302 +225,191 @@ class ReputationMerger:
             
             realm_content = realms_content[start_pos:realm_end]
             
-            # Check if this realm has ALL THREE expected list types (more strict check)
-            # A real realm MUST have whitelist, blacklist, AND notelist
-            has_whitelist = bool(re.search(r'\["whitelist"\]\s*=\s*\{', realm_content))
-            has_blacklist = bool(re.search(r'\["blacklist"\]\s*=\s*\{', realm_content))
-            has_notelist = bool(re.search(r'\["notelist"\]\s*=\s*\{', realm_content))
+            # Check if this realm has expected list types
+            has_whitelist = '["whitelist"]' in realm_content
+            has_blacklist = '["blacklist"]' in realm_content
+            has_notelist = '["notelist"]' in realm_content
             
-            if not (has_whitelist and has_blacklist and has_notelist):
-                continue
-            
-            # Mark all positions within this realm as processed
-            for pos in range(realm_match.start(), realm_end + 1):
-                processed_positions.add(pos)
-            
-            # Initialize realm structure
-            realms[realm_name] = {
-                'whitelist': {},
-                'blacklist': {},
-                'notelist': {}
-            }
-            
-            # Extract each list type
-            for list_type in ['whitelist', 'blacklist', 'notelist']:
-                list_pattern = rf'\["{list_type}"\]\s*=\s*\{{'
-                list_match = re.search(list_pattern, realm_content)
+            if has_whitelist or has_blacklist or has_notelist:
+                # Mark positions as processed
+                for j in range(i + 1, len(potential_realms)):
+                    if potential_realms[j].start() < realm_end:
+                        processed_positions.add(potential_realms[j].start())
                 
-                if not list_match:
-                    continue
+                realm_data = {
+                    'whitelist': {},
+                    'blacklist': {},
+                    'notelist': {}
+                }
                 
-                list_start = list_match.end()
+                # Extract each list type
+                for list_type in ['whitelist', 'blacklist', 'notelist']:
+                    # Найдём начало списка
+                    list_start_pattern = rf'\["{list_type}"\]\s*=\s*\{{'
+                    list_start_match = re.search(list_start_pattern, realm_content)
+                    
+                    if list_start_match:
+                        start_pos = list_start_match.end()
+                        
+                        # Найдём закрывающую скобку списка, считая вложенность
+                        brace_count = 1
+                        pos = start_pos
+                        list_end = -1
+                        
+                        while pos < len(realm_content) and brace_count > 0:
+                            if realm_content[pos] == '{':
+                                brace_count += 1
+                            elif realm_content[pos] == '}':
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    list_end = pos
+                                    break
+                            pos += 1
+                        
+                        if list_end != -1:
+                            list_content = realm_content[start_pos:list_end]
+                            realm_data[list_type] = self.extract_players(list_content)
                 
-                # Find matching closing brace for this list
-                brace_count = 1
-                pos = list_start
-                list_end = -1
-                
-                while pos < len(realm_content) and brace_count > 0:
-                    if realm_content[pos] == '{':
-                        brace_count += 1
-                    elif realm_content[pos] == '}':
-                        brace_count -= 1
-                        if brace_count == 0:
-                            list_end = pos
-                            break
-                    pos += 1
-                
-                if list_end == -1:
-                    continue
-                
-                list_content = realm_content[list_start:list_end]
-                
-                # Extract player entries
-                player_pattern = r'\["([^"]+)"\]\s*=\s*\{'
-                players = list(re.finditer(player_pattern, list_content))
-                
-                for p_idx, player_match in enumerate(players):
-                    player_key = player_match.group(1)
-                    p_end = player_match.end()
-                    
-                    # Find matching closing brace for player
-                    brace_count = 1
-                    pos = p_end
-                    player_end = -1
-                    
-                    while pos < len(list_content) and brace_count > 0:
-                        if list_content[pos] == '{':
-                            brace_count += 1
-                        elif list_content[pos] == '}':
-                            brace_count -= 1
-                            if brace_count == 0:
-                                player_end = pos
-                                break
-                        pos += 1
-                    
-                    if player_end == -1:
-                        continue
-                    
-                    player_content = list_content[p_end:player_end]
-                    
-                    player_data = {}
-                    
-                    # Extract string fields
-                    for field_match in re.finditer(r'\["([^"]+)"\]\s*=\s*"([^"]*)"', player_content):
-                        player_data[field_match.group(1)] = field_match.group(2)
-                    
-                    # Extract numeric fields
-                    for field_match in re.finditer(r'\["([^"]+)"\]\s*=\s*(\d+)', player_content):
-                        player_data[field_match.group(1)] = int(field_match.group(2))
-                    
-                    realms[realm_name][list_type][player_key] = player_data
+                realms[realm_name] = realm_data
         
         return realms
     
-    def parse_date(self, date_str):
-        """Parse date string to datetime object"""
-        try:
-            return datetime.strptime(date_str, "%d.%m.%Y %H:%M")
-        except:
-            return datetime.min
-    
-    def merge_player_data(self, existing, new):
-        """
-        Merge two player records:
-        - Берем запись с более поздней датой
-        - Дополняем отсутствующие поля из старой записи
-        """
-        existing_date = self.parse_date(existing.get('addedDate', ''))
-        new_date = self.parse_date(new.get('addedDate', ''))
+    def extract_players(self, list_content):
+        """Extract player data from a list (whitelist/blacklist/notelist)"""
+        players = {}
         
-        # Выбираем более свежую запись как базовую
-        if new_date > existing_date:
-            base_record = dict(new)
-            supplement_record = existing
-        else:
-            base_record = dict(existing)
-            supplement_record = new
+        # Find all player entries
+        player_pattern = r'\["([^"]+)"\]\s*=\s*\{'
+        potential_players = list(re.finditer(player_pattern, list_content))
         
-        # Дополняем отсутствующие поля из дополнительной записи
-        for field, value in supplement_record.items():
-            if field not in base_record or not base_record[field]:
-                base_record[field] = value
+        for player_match in potential_players:
+            player_key = player_match.group(1).lower()
+            start_pos = player_match.end()
+            
+            # Find matching closing brace
+            brace_count = 1
+            pos = start_pos
+            player_end = -1
+            
+            while pos < len(list_content) and brace_count > 0:
+                if list_content[pos] == '{':
+                    brace_count += 1
+                elif list_content[pos] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        player_end = pos
+                        break
+                pos += 1
+            
+            if player_end == -1:
+                continue
+            
+            player_content = list_content[start_pos:player_end]
+            
+            # Extract player fields
+            player_data = {'key': player_key}
+            
+            # Extract string fields
+            string_fields = ['note', 'addedDate', 'guid', 'class', 'race', 'name', 
+                           'faction', 'addedBy', 'guild', 'armoryLink']
+            for field in string_fields:
+                match = re.search(rf'\["{field}"\]\s*=\s*"([^"]*)"', player_content)
+                if match:
+                    player_data[field] = match.group(1)
+            
+            # Extract numeric fields
+            level_match = re.search(r'\["level"\]\s*=\s*(\d+)', player_content)
+            if level_match:
+                player_data['level'] = int(level_match.group(1))
+            
+            players[player_key] = player_data
         
-        return base_record
+        return players
     
     def merge_realm_lists(self, realm1, realm2):
-        """
-        Объединяет все списки realm'а с учетом переноса между списками.
-        Игрок помещается в тот список, где его запись новее.
-        """
-        # Собираем всех игроков из всех списков обоих realm'ов
-        all_players = {}  # {identifier: [(list_type, player_data), ...]}
-        name_to_guid = {}  # {normalized_name: guid} для связи записей без GUID
-        
-        def add_player(list_type, player_key, player_data, realm_idx):
-            """Добавляет игрока в общий пул"""
-            guid = player_data.get('guid', '')
-            name = player_data.get('name', '').lower()
-            
-            # Если есть GUID, сохраняем связь имя -> GUID
-            if guid and name:
-                if name in name_to_guid:
-                    # Если для этого имени уже есть GUID, используем существующий
-                    # (на случай если это разные записи одного игрока)
-                    pass
-                else:
-                    name_to_guid[name] = guid
-            
-            # Создаем идентификатор
-            if guid:
-                identifier = guid
-            elif name:
-                # Проверяем, есть ли уже GUID для этого имени
-                if name in name_to_guid:
-                    identifier = name_to_guid[name]
-                else:
-                    identifier = f"name:{name}"
-            else:
-                # Нет ни GUID, ни имени - используем ключ
-                identifier = f"key:{player_key}"
-            
-            if identifier not in all_players:
-                all_players[identifier] = []
-            
-            all_players[identifier].append({
-                'list_type': list_type,
-                'player_key': player_key,
-                'player_data': player_data,
-                'realm_idx': realm_idx
-            })
-        
-        # ПЕРВЫЙ ПРОХОД: собираем все GUID и связываем с именами
-        for realm_data in [realm1, realm2]:
-            for list_type in ['blacklist', 'whitelist', 'notelist']:
-                for player_key, player_data in realm_data.get(list_type, {}).items():
-                    guid = player_data.get('guid', '')
-                    name = player_data.get('name', '').lower()
-                    if guid and name:
-                        name_to_guid[name] = guid
-        
-        # ВТОРОЙ ПРОХОД: собираем игроков с учетом связей
-        for list_type in ['blacklist', 'whitelist', 'notelist']:
-            for player_key, player_data in realm1.get(list_type, {}).items():
-                add_player(list_type, player_key, player_data, 1)
-        
-        for list_type in ['blacklist', 'whitelist', 'notelist']:
-            for player_key, player_data in realm2.get(list_type, {}).items():
-                add_player(list_type, player_key, player_data, 2)
-        
-        # Результирующие списки
-        result_realm = {
-            'blacklist': {},
+        """Merge two realm data structures"""
+        merged = {
             'whitelist': {},
+            'blacklist': {},
             'notelist': {}
         }
         
-        # Обрабатываем каждого уникального игрока
-        for identifier, entries in all_players.items():
-            if len(entries) == 1:
-                # Игрок найден только в одном месте
-                entry = entries[0]
-                result_realm[entry['list_type']][entry['player_key']] = entry['player_data']
-            else:
-                # Игрок найден в нескольких местах - нужно объединить
-                # Находим запись с самой поздней датой
-                newest_entry = None
-                newest_date = datetime.min
-                
-                for entry in entries:
-                    entry_date = self.parse_date(entry['player_data'].get('addedDate', ''))
-                    if entry_date > newest_date:
-                        newest_date = entry_date
-                        newest_entry = entry
-                
-                # Объединяем данные из всех записей
-                merged_data = dict(newest_entry['player_data'])
-                
-                # Дополняем отсутствующие поля из других записей
-                for entry in entries:
-                    if entry is not newest_entry:
-                        for field, value in entry['player_data'].items():
-                            if field not in merged_data or not merged_data[field]:
-                                merged_data[field] = value
-                
-                # Помещаем в список из самой свежей записи
-                target_list = newest_entry['list_type']
-                player_key = newest_entry['player_key']
-                
-                result_realm[target_list][player_key] = merged_data
+        # Merge each list type
+        for list_type in ['whitelist', 'blacklist', 'notelist']:
+            list1 = realm1.get(list_type, {})
+            list2 = realm2.get(list_type, {})
+            
+            # Start with all players from list1
+            merged[list_type] = dict(list1)
+            
+            # Add players from list2
+            for player_key, player_data in list2.items():
+                if player_key not in merged[list_type]:
+                    merged[list_type][player_key] = player_data
+                # If player exists, keep the one with more recent date
+                else:
+                    existing_date = merged[list_type][player_key].get('addedDate', '')
+                    new_date = player_data.get('addedDate', '')
+                    if new_date > existing_date:
+                        merged[list_type][player_key] = player_data
         
-        return result_realm
+        return merged
     
-    def format_player_entry(self, player_data, indent=0):
-        """Format a single player entry"""
+    def format_player(self, player_data, indent_level):
+        """Format player data for Lua output"""
+        indent = '\t' * indent_level
         lines = []
-        tab = '\t' * indent
         
-        # Order of fields to match original format
-        field_order = ['note', 'addedDate', 'guid', 'class', 'race', 'name', 'faction', 'key', 'level', 'guild', 'addedBy']
+        # Field order for consistent output
+        field_order = ['note', 'addedDate', 'guid', 'class', 'armoryLink', 'race', 
+                      'name', 'faction', 'addedBy', 'level', 'guild', 'key']
         
         for field in field_order:
             if field in player_data:
                 value = player_data[field]
                 if isinstance(value, str):
-                    lines.append(f'{tab}["{field}"] = "{value}",')
-                elif isinstance(value, int):
-                    lines.append(f'{tab}["{field}"] = {value},')
+                    lines.append(f'{indent}["{field}"] = "{value}",')
+                elif isinstance(value, (int, float)):
+                    lines.append(f'{indent}["{field}"] = {value},')
         
         return '\n'.join(lines)
     
-    def format_realm(self, realm_data, indent=0):
-        """Format a complete realm"""
+    def format_list(self, list_data, indent_level):
+        """Format a list (whitelist/blacklist/notelist) for Lua output"""
+        indent = '\t' * indent_level
         lines = []
-        tab = '\t' * indent
         
-        lines.append('{')
-        
-        # Format lists in order
-        for list_type in ['whitelist', 'blacklist', 'notelist']:
-            if list_type in realm_data:
-                lines.append(tab + '["' + list_type + '"] = {')
-                
-                for player_key, player_data in realm_data[list_type].items():
-                    lines.append(tab + '\t["' + player_key + '"] = {')
-                    lines.append(self.format_player_entry(player_data, indent + 2))
-                    lines.append(tab + '\t},')
-                
-                lines.append(tab + '},')
-        
-        if len(tab) > 0:
-            lines.append(tab[:-1] + '}')
-        else:
-            lines.append('}')
+        for player_key, player_data in sorted(list_data.items()):
+            lines.append(f'{indent}["{player_key}"] = {{')
+            lines.append(self.format_player(player_data, indent_level + 1))
+            lines.append(f'{indent}}},')
         
         return '\n'.join(lines)
     
-    def data_to_lua(self, data, tracker_angle):
-        """Convert merged data back to Lua format"""
+    def format_realm(self, realm_data, indent_level):
+        """Format realm data for Lua output"""
+        indent = '\t' * indent_level
+        lines = ['{']
+        
+        # Format each list type
+        for list_type in ['whitelist', 'notelist', 'blacklist']:
+            list_data = realm_data.get(list_type, {})
+            lines.append(f'{indent}["{list_type}"] = {{')
+            if list_data:
+                lines.append(self.format_list(list_data, indent_level + 1))
+            lines.append(f'{indent}}},')
+        
+        lines.append('\t\t}')
+        return '\n'.join(lines)
+    
+    def data_to_lua(self, global_data):
+        """Convert merged data back to Lua format - preserving source file settings"""
         lines = []
         
+        # ReputationListDB
         lines.append('ReputationListDB = {')
         
-        # Global data section
-        global_data = data
-        
-        # Basic settings
-        lines.append(f'\t["autoNotify"] = {"true" if global_data.get("autoNotify", True) else "false"},')
-        lines.append(f'\t["popupNotify"] = {"true" if global_data.get("popupNotify", True) else "false"},')
-        lines.append(f'\t["colorLFG"] = {"true" if global_data.get("colorLFG", True) else "false"},')
-        lines.append(f'\t["soundNotify"] = {"true" if global_data.get("soundNotify", True) else "false"},')
-        lines.append(f'\t["uiMode"] = "{global_data.get("uiMode", "full")}",')
-        lines.append(f'\t["filterMessages"] = {"true" if global_data.get("filterMessages", False) else "false"},')
-        lines.append(f'\t["selfNotify"] = {"true" if global_data.get("selfNotify", True) else "false"},')
-        lines.append(f'\t["initialized"] = {"true" if global_data.get("initialized", True) else "false"},')
-        lines.append(f'\t["blockTrade"] = {"true" if global_data.get("blockTrade", False) else "false"},')
-        lines.append(f'\t["blockInvites"] = {"true" if global_data.get("blockInvites", False) else "false"},')
-        
-        # Card positions
+        # Card positions (from source)
         lines.append('\t["cardPositions"] = {')
         card_pos = global_data.get('cardPositions', {})
         if card_pos:
@@ -498,42 +417,38 @@ class ReputationMerger:
             lines.append(f'\t\t["x"] = {card_pos.get("x", 0)},')
         lines.append('\t},')
         
-        # GUID map (if exists)
-        if global_data.get('guidMap'):
-            lines.append('\t["guidMap"] = {')
-            for guid, guid_data in global_data['guidMap'].items():
-                lines.append('\t\t["' + guid + '"] = {')
-                if 'realm' in guid_data:
-                    lines.append('\t\t\t["realm"] = "' + guid_data["realm"] + '",')
-                if 'key' in guid_data:
-                    lines.append('\t\t\t["key"] = "' + guid_data["key"] + '",')
-                if 'list' in guid_data:
-                    lines.append('\t\t\t["list"] = "' + guid_data["list"] + '",')
-                lines.append('\t\t},')
-            lines.append('\t},')
+        # Settings (from source)
+        lines.append(f'\t["autoNotify"] = {"true" if global_data.get("autoNotify", True) else "false"},')
+        lines.append(f'\t["popupNotify"] = {"true" if global_data.get("popupNotify", True) else "false"},')
+        lines.append(f'\t["colorLFG"] = {"true" if global_data.get("colorLFG", True) else "false"},')
+        lines.append(f'\t["soundNotify"] = {"true" if global_data.get("soundNotify", True) else "false"},')
+        lines.append(f'\t["uiMode"] = "{global_data.get("uiMode", "full")}",')
+        lines.append(f'\t["filterMessages"] = {"true" if global_data.get("filterMessages", False) else "false"},')
         
-        # Stats
-        if global_data.get('stats'):
-            lines.append('\t["stats"] = {')
-            lines.append(f'\t\t["totalPlayers"] = {global_data["stats"].get("totalPlayers", 0)},')
-            lines.append('\t},')
-        
-        # Migrated
-        lines.append(f'\t["migrated"] = {"true" if global_data.get("migrated", True) else "false"},')
-        
-        # Realms
+        # Merged realms data
         lines.append('\t["realms"] = {')
-        
         for realm_name, realm_data in global_data.get('realms', {}).items():
             lines.append(f'\t\t["{realm_name}"] = {self.format_realm(realm_data, 3)},')
-        
         lines.append('\t},')
+        
+        # More settings (from source)
+        lines.append(f'\t["selfNotify"] = {"true" if global_data.get("selfNotify", True) else "false"},')
+        lines.append(f'\t["blockInvites"] = {"true" if global_data.get("blockInvites", False) else "false"},')
+        lines.append(f'\t["blockTrade"] = {"true" if global_data.get("blockTrade", False) else "false"},')
+        lines.append(f'\t["initialized"] = {"true" if global_data.get("initialized", True) else "false"},')
+        
         lines.append('}')
         
-        # Tracker
-        lines.append('ReputationTrackerDB = {')
-        lines.append(f'\t["minimapAngle"] = {tracker_angle},')
-        lines.append('}')
+        # Add tracker DBs from source if available
+        if global_data.get('tracker_db'):
+            lines.append(global_data['tracker_db'])
+        else:
+            lines.append('ReputationTrackerDB = {')
+            lines.append('\t["minimapAngle"] = 180.0,')
+            lines.append('}')
+        
+        if global_data.get('group_tracker_db'):
+            lines.append(global_data['group_tracker_db'])
         
         return '\n'.join(lines) + '\n'
     
@@ -562,20 +477,23 @@ class ReputationMerger:
         
         self.log(f"Найдено аккаунтов: {len(account_folders)}")
         
-        # Collect all account paths (both with and without reputation.lua)
+        # Collect all account paths
         all_accounts = []
         reputation_files = []
+        default_settings = None
         
         for account in account_folders:
             saved_vars_dir = os.path.join(account_path, account, "SavedVariables")
             rep_file = os.path.join(saved_vars_dir, "reputation.lua")
             
-            # Add to all accounts list
             all_accounts.append((account, saved_vars_dir))
             
             if os.path.exists(rep_file):
                 reputation_files.append((account, rep_file))
                 self.log(f"  ✓ {account}: reputation.lua найден")
+                # Save first file settings as default for new accounts
+                if default_settings is None:
+                    default_settings = self.parse_lua_file(rep_file)
             else:
                 self.log(f"  ✗ {account}: reputation.lua не найден (будет создан)")
         
@@ -583,42 +501,46 @@ class ReputationMerger:
             messagebox.showwarning("Предупреждение", "Не найдено файлов reputation.lua")
             return
         
-        # Merge all data
-        merged_data = None
-        tracker_angle = 180.0
+        # Merge all realm lists from all accounts
+        self.log("\n=== Объединение списков игроков ===")
+        merged_realms = {}
         
         for account, file_path in reputation_files:
             self.log(f"Обработка {account}...")
             
             try:
-                data, angle = self.parse_lua_file(file_path)
-                tracker_angle = angle  # Use last found angle
+                data = self.parse_lua_file(file_path)
                 
-                if merged_data is None:
-                    merged_data = data
-                else:
-                    # Merge realms using new logic
+                # Debug info
+                realms_found = list(data.get('realms', {}).keys())
+                if realms_found:
+                    self.log(f"  Найдены realms: {realms_found}")
                     for realm_name, realm_data in data.get('realms', {}).items():
-                        if realm_name not in merged_data['realms']:
-                            merged_data['realms'][realm_name] = realm_data
-                        else:
-                            # Merge with cross-list logic
-                            merged_data['realms'][realm_name] = self.merge_realm_lists(
-                                merged_data['realms'][realm_name],
-                                realm_data
-                            )
+                        wl = len(realm_data.get('whitelist', {}))
+                        bl = len(realm_data.get('blacklist', {}))
+                        nl = len(realm_data.get('notelist', {}))
+                        self.log(f"    {realm_name}: WL={wl}, BL={bl}, NL={nl}")
+                else:
+                    self.log(f"  ⚠ Realms не найдены!")
                 
-                self.log(f"  ✓ Данные из {account} обработаны")
+                # Merge realms
+                for realm_name, realm_data in data.get('realms', {}).items():
+                    if realm_name not in merged_realms:
+                        merged_realms[realm_name] = realm_data
+                    else:
+                        merged_realms[realm_name] = self.merge_realm_lists(
+                            merged_realms[realm_name],
+                            realm_data
+                        )
+                
+                self.log(f"  ✓ Списки из {account} обработаны")
                 
             except Exception as e:
                 self.log(f"  ✗ Ошибка при обработке {account}: {str(e)}")
                 import traceback
                 self.log(traceback.format_exc())
         
-        # Generate Lua output
-        lua_output = self.data_to_lua(merged_data, tracker_angle)
-        
-        # Write merged data to ALL accounts (including those without reputation.lua)
+        # Write merged data to ALL accounts, preserving individual settings
         self.log("\n=== Запись объединенных данных ===")
         
         backup_count = 0
@@ -634,15 +556,25 @@ class ReputationMerger:
                 
                 file_path = os.path.join(saved_vars_dir, "reputation.lua")
                 
-                # Create backup if file exists
+                # Load existing settings or use defaults
                 if os.path.exists(file_path):
+                    # Keep original settings, only update realms
+                    account_data = self.parse_lua_file(file_path)
+                    account_data['realms'] = merged_realms
+                    
                     backup_path = file_path + ".backup"
                     shutil.copy2(file_path, backup_path)
                     backup_count += 1
-                    action = "обновлен"
+                    action = "обновлен (настройки сохранены)"
                 else:
+                    # Use default settings for new files
+                    account_data = dict(default_settings)
+                    account_data['realms'] = merged_realms
                     created_count += 1
                     action = "создан"
+                
+                # Generate Lua output with account's own settings
+                lua_output = self.data_to_lua(account_data)
                 
                 # Write merged data
                 with open(file_path, 'w', encoding='utf-8') as f:
@@ -663,7 +595,7 @@ class ReputationMerger:
         
         # Show summary
         total_players = 0
-        for realm_data in merged_data.get('realms', {}).values():
+        for realm_data in merged_realms.values():
             total_players += len(realm_data.get('whitelist', {}))
             total_players += len(realm_data.get('blacklist', {}))
             total_players += len(realm_data.get('notelist', {}))
@@ -676,6 +608,7 @@ class ReputationMerger:
                            f"Создано новых файлов: {created_count}\n"
                            f"Обновлено файлов: {backup_count}\n"
                            f"Всего записей: {total_players}\n\n"
+                           f"Каждый аккаунт сохранил свои настройки\n"
                            f"Backup файлы созданы с расширением .backup")
 
 if __name__ == "__main__":

@@ -167,7 +167,14 @@ function Common.ShowExportWrapper(UI, L)
         Common.exportState.frame:Show()
     end
     
-    local data = { realms = ReputationListDB.realms or {} }
+    -- Экспортируем только текущий реалм
+    local currentRealm = RL.NormalizeRealm(GetRealmName())
+    local currentRealmData = {}
+    if ReputationListDB and ReputationListDB.realms and ReputationListDB.realms[currentRealm] then
+        currentRealmData[currentRealm] = ReputationListDB.realms[currentRealm]
+    end
+    
+    local data = { realms = currentRealmData }
     print(L and L["UI_CB31"] or "|cFF00FF00ReputationList:|r Export starting...")
     
     if RL and RL.UICommon and RL.UICommon.AsyncSerialize then
@@ -464,6 +471,7 @@ function Common.StartBatchSerialization(playerQueue, callback, L)
             if pd.addedDate then table.insert(result, '          addedDate = "' .. tostring(pd.addedDate):gsub('"', '\\"') .. '",\n') end
             if pd.name then table.insert(result, '          name = "' .. tostring(pd.name):gsub('"', '\\"') .. '",\n') end
             if pd.key then table.insert(result, '          key = "' .. tostring(pd.key):gsub('"', '\\"') .. '",\n') end
+            if pd.armoryLink then table.insert(result, '          armoryLink = "' .. tostring(pd.armoryLink):gsub('"', '\\"') .. '",\n') end
             
             table.insert(result, '        },\n')
         end
@@ -497,6 +505,23 @@ function Common.DeletePlayerDialog(playerName, UI, STATE, L)
             if RL and RL.RemovePlayer then
 
                 local listType = STATE.currentTab
+                
+                if listType == "whohere" then
+                    local realmData = RL:GetRealmData()
+                    local searchKey = string.lower(RL.NormalizeName(playerName))
+                    
+                    if realmData.blacklist[searchKey] then
+                        listType = "blacklist"
+                    elseif realmData.whitelist[searchKey] then
+                        listType = "whitelist"
+                    elseif realmData.notelist[searchKey] then
+                        listType = "notelist"
+                    else
+                        print("|cFFFF0000ReputationList:|r Player not found in any list!")
+                        return
+                    end
+                end
+                
                 local shortType = listType
                 if listType == "blacklist" then
                     shortType = "black"
@@ -536,6 +561,22 @@ function Common.EditPlayerDialog(playerName, currentNote, UI, STATE, L)
             if RL then
                 local realmData = RL:GetRealmData()
                 local listType = STATE.currentTab
+                
+                if listType == "whohere" then
+                    local searchKey = string.lower(RL.NormalizeName(playerName))
+                    
+                    if realmData.blacklist[searchKey] then
+                        listType = "blacklist"
+                    elseif realmData.whitelist[searchKey] then
+                        listType = "whitelist"
+                    elseif realmData.notelist[searchKey] then
+                        listType = "notelist"
+                    else
+                        print("|cFFFF0000ReputationList:|r Player not found in any list!")
+                        return
+                    end
+                end
+                
                 local targetList = nil
                 
                 if listType == "blacklist" then
@@ -566,6 +607,23 @@ function Common.EditPlayerDialog(playerName, currentNote, UI, STATE, L)
             if RL then
                 local realmData = RL:GetRealmData()
                 local listType = STATE.currentTab
+                
+                if listType == "whohere" then
+                    local searchKey = string.lower(RL.NormalizeName(playerName))
+                    
+                    if realmData.blacklist[searchKey] then
+                        listType = "blacklist"
+                    elseif realmData.whitelist[searchKey] then
+                        listType = "whitelist"
+                    elseif realmData.notelist[searchKey] then
+                        listType = "notelist"
+                    else
+                        print("|cFFFF0000ReputationList:|r Player not found in any list!")
+                        parent:Hide()
+                        return
+                    end
+                end
+                
                 local targetList = nil
                 
                 if listType == "blacklist" then
@@ -638,28 +696,38 @@ function Common.KickPlayerDialog(playerName, UI, L)
     StaticPopup_Show("REPUTATION_KICK_PROMPT", nil, nil, {name = playerName})
 end
 
-function Common.CreatePlayerCardFrame(L)
-    local f = CreateFrame("Frame", "RepListPlayerCard", UIParent)
-    f:SetSize(420, 290)
+function Common.CreatePlayerCardBase(L, options)
+    
+    options = options or {}
+    
+    local f = CreateFrame("Frame", options.frameName or "RepListPlayerCardBase", UIParent)
+    f:SetSize(400, 350)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
-    f:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 32, edgeSize = 32,
-        insets = { left = 8, right = 8, top = 8, bottom = 8 }
-    })
-    f:SetBackdropColor(0, 0, 0, 0.9)
     f:SetMovable(true)
     f:EnableMouse(true)
+    f:SetClampedToScreen(true)
     f:RegisterForDrag("LeftButton")
+    
+    if options.applyStyle then
+        options.applyStyle(f, "frame", f)
+    else
+        f:SetBackdrop({
+            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 16,
+            insets = {left = 4, right = 4, top = 4, bottom = 4}
+        })
+        f:SetBackdropColor(0.1, 0.1, 0.1, 0.95)
+    end
+    
     f:SetScript("OnDragStart", function(self) self:StartMoving() end)
     f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
     
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     f.title:SetPoint("TOP", 0, -15)
     f.title:SetTextColor(1, 0, 0)
-    f.title:SetText((L and L["UI_POP1"] or "Player Info: ") .. "BLACKLIST")
+    f.title:SetText(L["UI_POP1"] .. "BLACKLIST")
     
     f.factionLogo = f:CreateTexture(nil, "ARTWORK")
     f.factionLogo:SetSize(80, 80)
@@ -670,7 +738,7 @@ function Common.CreatePlayerCardFrame(L)
     
     f.nameLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     f.nameLabel:SetPoint("TOPLEFT", leftX, startY)
-    f.nameLabel:SetText((L and L["UI_LBL_NM"] or "Name") .. ":")
+    f.nameLabel:SetText(L["UI_LBL_NM"])
     f.nameValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.nameValue:SetPoint("LEFT", f.nameLabel, "RIGHT", 5, 0)
     f.nameValue:SetWidth(200)
@@ -678,25 +746,25 @@ function Common.CreatePlayerCardFrame(L)
     
     f.classLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     f.classLabel:SetPoint("TOPLEFT", leftX, startY - 25)
-    f.classLabel:SetText((L and L["UI_LBL_CL"] or "Class") .. ":")
+    f.classLabel:SetText(L["UI_LBL_CL"])
     f.classValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.classValue:SetPoint("LEFT", f.classLabel, "RIGHT", 5, 0)
     
     f.raceLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     f.raceLabel:SetPoint("TOPLEFT", leftX, startY - 45)
-    f.raceLabel:SetText((L and L["UI_LBL_RC"] or "Race") .. ":")
+    f.raceLabel:SetText(L["UI_LBL_RC"])
     f.raceValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.raceValue:SetPoint("LEFT", f.raceLabel, "RIGHT", 5, 0)
     
     f.levelLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     f.levelLabel:SetPoint("TOPLEFT", leftX, startY - 65)
-    f.levelLabel:SetText((L and L["UI_CB45"] or "Level") .. ":")
+    f.levelLabel:SetText(L["UI_CB45"])
     f.levelValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.levelValue:SetPoint("LEFT", f.levelLabel, "RIGHT", 5, 0)
     
     f.guildLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     f.guildLabel:SetPoint("TOPLEFT", leftX, startY - 85)
-    f.guildLabel:SetText((L and L["UI_LBL_GLD"] or "Guild") .. ":")
+    f.guildLabel:SetText(L["UI_LBL_GLD"])
     f.guildValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.guildValue:SetPoint("LEFT", f.guildLabel, "RIGHT", 5, 0)
     f.guildValue:SetWidth(200)
@@ -710,38 +778,97 @@ function Common.CreatePlayerCardFrame(L)
     f.guidValue:SetWidth(300)
     f.guidValue:SetJustifyH("LEFT")
     
+    if options.withArmoryLink then
+        f.armoryLinkLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        f.armoryLinkLabel:SetPoint("TOPLEFT", 20, startY - 135)
+        f.armoryLinkLabel:SetText(L["WH_D07"])
+        
+        f.armoryLinkEditBox = CreateFrame("EditBox", nil, f)
+        f.armoryLinkEditBox:SetSize(220, 20)
+        f.armoryLinkEditBox:SetPoint("LEFT", f.armoryLinkLabel, "RIGHT", 5, 0)
+        f.armoryLinkEditBox:SetAutoFocus(false)
+        f.armoryLinkEditBox:SetFontObject(GameFontNormalSmall)
+        f.armoryLinkEditBox:SetTextInsets(5, 5, 3, 3)
+        f.armoryLinkEditBox:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+        f.armoryLinkEditBox:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+        
+        if options.applyStyle then
+            options.applyStyle(f, "editbox", f.armoryLinkEditBox)
+        else
+            f.armoryLinkEditBox:SetBackdrop({
+                bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                tile = true, tileSize = 16, edgeSize = 16,
+                insets = { left = 3, right = 3, top = 3, bottom = 3 }
+            })
+            f.armoryLinkEditBox:SetBackdropColor(0, 0, 0, 0.5)
+            f.armoryLinkEditBox:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+        end
+        
+        f.armoryLinkSaveBtn = CreateFrame("Button", nil, f)
+        f.armoryLinkSaveBtn:SetSize(20, 20)
+        f.armoryLinkSaveBtn:SetPoint("LEFT", f.armoryLinkEditBox, "RIGHT", 5, 0)
+        f.armoryLinkSaveBtn:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Check")
+        f.armoryLinkSaveBtn:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight")
+        
+        if options.applyStyle then
+            options.applyStyle(f, "button", f.armoryLinkSaveBtn)
+        else
+            f.armoryLinkSaveBtn:SetBackdrop({
+                bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+                tile = true, tileSize = 8, edgeSize = 8,
+                insets = { left = 2, right = 2, top = 2, bottom = 2 }
+            })
+            f.armoryLinkSaveBtn:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
+            f.armoryLinkSaveBtn:SetBackdropBorderColor(1.0, 1.0, 0.0, 1.0)
+        end
+        
+        f.currentPlayerData = nil
+    end
+    
     f.noteLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.noteLabel:SetPoint("TOPLEFT", 20, -175)
-    f.noteLabel:SetText((L and L["UI_LBL_NT"] or "Note") .. ":")
+    f.noteLabel:SetPoint("TOPLEFT", 20, -210)
+    f.noteLabel:SetText(L["UI_LBL_NT"])
     
-    f.noteScrollFrame = CreateFrame("ScrollFrame", nil, f, "UIPanelScrollFrameTemplate")
-    f.noteScrollFrame:SetSize(370, 60)
-    f.noteScrollFrame:SetPoint("TOPLEFT", 20, -195)
+    f.noteText = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.noteText:SetPoint("TOPLEFT", 20, -230)
+    f.noteText:SetPoint("BOTTOMRIGHT", -20, 40)
+    f.noteText:SetJustifyH("LEFT")
+    f.noteText:SetJustifyV("TOP")
+    f.noteText:SetTextColor(1, 1, 0.5)
     
-    f.noteEditBox = CreateFrame("EditBox", nil, f.noteScrollFrame)
-    f.noteEditBox:SetSize(350, 60)
-    f.noteEditBox:SetMultiLine(true)
-    f.noteEditBox:SetAutoFocus(false)
-    f.noteEditBox:SetFontObject(GameFontHighlightSmall)
-    f.noteEditBox:SetMaxLetters(500)
-    f.noteScrollFrame:SetScrollChild(f.noteEditBox)
+    local closeBtn = CreateFrame("Button", nil, f, options.applyStyle and nil or "GameMenuButtonTemplate")
+    closeBtn:SetSize(100, 25)
+    closeBtn:SetPoint("BOTTOM", 0, 10)
     
-    f.addedByLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.addedByLabel:SetPoint("BOTTOMLEFT", 20, 40)
-    f.addedByLabel:SetText((L and L["UI_LBL_AB"] or "Added by") .. ":")
-    f.addedByValue = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.addedByValue:SetPoint("LEFT", f.addedByLabel, "RIGHT", 5, 0)
+    if options.applyStyle then
+        options.applyStyle(f, "closebutton", closeBtn)
+        local closeBtnText = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        closeBtnText:SetPoint("CENTER")
+        closeBtnText:SetText(L["UI_CLOSE"])
+    else
+        closeBtn:SetText(L["UI_CLOSE"])
+    end
     
-    f.addedDateValue = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.addedDateValue:SetPoint("BOTTOMRIGHT", -20, 40)
-    
-    local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
-    closeBtn:SetPoint("TOPRIGHT", -5, -5)
     closeBtn:SetScript("OnClick", function() f:Hide() end)
     
     f:Hide()
     return f
 end
+
+function Common.GetPooledFrame(parent, framePool, UICommon)
+    local frame = UICommon.GetSimplePooledFrame(framePool, parent)
+    if not frame then
+        frame = CreateFrame("Frame", nil, parent)
+    end
+    return frame
+end
+
+function Common.ReleaseFrame(frame, framePool, UICommon)
+    UICommon.ReleaseSimpleFrame(frame, framePool)
+end
+
 
 function Common.CreateStandardCloseButton(frame)
     local closeBtn = CreateFrame("Button", nil, frame, "UIPanelCloseButton")

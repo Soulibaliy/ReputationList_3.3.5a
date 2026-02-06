@@ -16,6 +16,8 @@ RL.UI.Classic = UI
 
 local L = ReputationList.L or ReputationListLocale
 
+local Common = RL.UICommon
+
 local CONFIG = {
     FRAME_WIDTH = 500,
     FRAME_HEIGHT = 400,
@@ -31,6 +33,7 @@ local STATE = {
     searchText = "",
     scrollOffset = 0,
     selectedPlayer = nil,
+    showGroupMembers = false,
 }
 
 local CACHE = {
@@ -45,15 +48,11 @@ local CACHE = {
 UI.framePool = {}
 
 local function GetPooledFrame(parent)
-    local frame = RL.UICommon.GetSimplePooledFrame(UI.framePool, parent)
-    if not frame then
-        frame = CreateFrame("Frame", nil, parent)
-    end
-    return frame
+    return Common.GetPooledFrame(parent, UI.framePool, RL.UICommon)
 end
 
 local function ReleaseFrame(frame)
-    RL.UICommon.ReleaseSimpleFrame(frame, UI.framePool)
+    Common.ReleaseFrame(frame, UI.framePool, RL.UICommon)
 end
 
 
@@ -95,7 +94,7 @@ end
 
 function UI:CreateHeader(parent)
     local title = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetPoint("TOPLEFT", 20, -15)
+    title:SetPoint("TOPLEFT", 20, -20)
     title:SetText("Reputation List - Blacklist (0)")
     title:SetTextColor(0, 1, 0)
     parent.titleText = title
@@ -147,6 +146,65 @@ function UI:CreateHeader(parent)
         if RL.ManualNotify then RL:ManualNotify() end
     end)
     parent.notifyBtn = notifyBtn
+    
+    local whoHereLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    whoHereLabel:SetPoint("RIGHT", notifyBtn, "LEFT", -95, 0)
+    whoHereLabel:SetText(L["UI_WHO_HERE"] or "Кто здесь?")
+    whoHereLabel:SetTextColor(1, 1, 1)
+    parent.whoHereLabel = whoHereLabel
+    
+    local whoHereCheckbox = CreateFrame("CheckButton", "ReputationWhoHereCheckbox", parent, "UICheckButtonTemplate")
+    whoHereCheckbox:SetSize(24, 24)
+    whoHereCheckbox:SetPoint("LEFT", whoHereLabel, "RIGHT", 5, 0)
+    
+     whoHereCheckbox:SetScript("OnClick", function(self)
+        local isChecked = self:GetChecked()
+        
+        if isChecked then
+            local hasGroup = RL.GroupTracker and RL.GroupTracker:IsInGroup()
+            local hasSavedGroup = false
+            
+            if RL.GroupTracker then
+                local saved = RL.GroupTracker:GetSavedGroup()
+                if saved and saved.members and next(saved.members) then
+                    hasSavedGroup = true
+                end
+            end
+            
+            local hasCachedData = false
+            if ReputationGroupTrackerDB and ReputationGroupTrackerDB.whoHereCache then
+                hasCachedData = next(ReputationGroupTrackerDB.whoHereCache) ~= nil
+            end
+            
+            if not hasGroup and not hasSavedGroup and not hasCachedData then
+                self:SetChecked(false)
+                print(L["WH_D01"])
+                return
+            end
+            
+            if not hasGroup and (hasSavedGroup or hasCachedData) then
+                print(L["WH_D02"])
+            end
+        end
+        
+        STATE.showGroupMembers = isChecked
+		
+		
+        STATE.currentTab = isChecked and "whohere" or "blacklist"
+        
+        UI:UpdateTabAppearance()
+        UI:RefreshList()
+    end)
+    
+    whoHereCheckbox:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["WH_D03"] or "Кто здесь?", 1, 1, 0)
+        GameTooltip:AddLine(L["WH_D04"] or "Показать игроков в текущей группе/рейде", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    whoHereCheckbox:SetScript("OnLeave", GameTooltip_Hide)
+    
+    parent.whoHereCheckbox = whoHereCheckbox
     
     local closeBtn = CreateFrame("Button", nil, parent, "UIPanelCloseButton")
     closeBtn:SetPoint("TOPRIGHT", -10, -10)
@@ -213,6 +271,11 @@ function UI:CreateToolbar(parent)
         end)
         
         tab:SetScript("OnClick", function()
+            if parent.whoHereCheckbox and parent.whoHereCheckbox:GetChecked() then
+                parent.whoHereCheckbox:SetChecked(false)
+                STATE.showGroupMembers = false
+            end
+            
             STATE.currentTab = data.key
             UI:UpdateTabAppearance()
             if data.key == "settings" then
@@ -261,6 +324,28 @@ end
 
 function UI:UpdateTabAppearance()
     if not CACHE.tabs then return end
+    
+    if STATE.showGroupMembers then
+        for key, tab in pairs(CACHE.tabs) do
+            tab:SetBackdropColor(0, 0, 0, 0.7)
+            tab:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+            if tab.text then
+                tab.text:SetTextColor(0.6, 0.6, 0.6)
+            end
+        end
+        
+        if CACHE.mainFrame and CACHE.mainFrame.titleText then
+            local count = 0
+            if RL.GroupTracker then
+                local members = RL.GroupTracker:GetCurrentGroupMembers()
+                for _ in pairs(members) do
+                    count = count + 1
+                end
+            end
+            CACHE.mainFrame.titleText:SetText("Reputation List - " .. (L["UI_WHO_HERE"] or "Кто здесь?") .. " (" .. count .. ")")
+        end
+        return
+    end
     
     for key, tab in pairs(CACHE.tabs) do
         local isActive = (key == STATE.currentTab)
@@ -439,6 +524,68 @@ function UI:CreateRows(parent)
     end
 end
 
+function UI:UpdateRowDisplay(row, data, isWhoHereMode)
+    if not row or not data then return end
+    
+    local nameColor = {1, 1, 1}
+    
+    if isWhoHereMode then
+        if data.inList then
+            if data.listType == "blacklist" then
+                nameColor = {1, 0, 0}
+            elseif data.listType == "whitelist" then
+                nameColor = {0, 1, 0}
+            elseif data.listType == "notelist" then
+                nameColor = {1, 0.66, 0}
+            end
+        end
+    else
+        if STATE.currentTab == "blacklist" then
+            nameColor = {1, 0, 0}
+        elseif STATE.currentTab == "whitelist" then
+            nameColor = {0, 1, 0}
+        elseif STATE.currentTab == "notelist" then
+            nameColor = {1, 0.66, 0}
+        end
+    end
+    
+    row.nameText:SetText(data.name or "???")
+    row.nameText:SetTextColor(nameColor[1], nameColor[2], nameColor[3])
+    row.playerName = data.name
+    
+    row.noteText:SetText(data.note or "")
+    row.noteText:SetTextColor(0.9, 0.9, 0.9)
+    row.playerNote = data.note
+    
+    row.playerData = data
+    
+    if row.buttons.info then row.buttons.info:Show() end
+    if row.buttons.ignore then row.buttons.ignore:Show() end
+    
+    if isWhoHereMode then
+        if data.inList then
+            if row.buttons.edit then row.buttons.edit:Show() end
+            if row.buttons.delete then row.buttons.delete:Show() end
+            if row.buttons.addToList then row.buttons.addToList:Hide() end
+            if row.listTypeDropdown then row.listTypeDropdown:Hide() end
+        else
+            if row.buttons.edit then row.buttons.edit:Hide() end
+            if row.buttons.delete then row.buttons.delete:Hide() end
+            if row.buttons.addToList then row.buttons.addToList:Show() end
+            if row.listTypeDropdown then row.listTypeDropdown:Show() end
+        end
+    else
+        if row.buttons.edit then row.buttons.edit:Show() end
+        if row.buttons.delete then row.buttons.delete:Show() end
+        if row.buttons.addToList then row.buttons.addToList:Hide() end
+        if row.listTypeDropdown then row.listTypeDropdown:Hide() end
+    end
+    
+    local ignored = RL.IsInBlizzardIgnore(data.name)
+    local ignoreText = ignored and (L["UI_UNLOCK"] or "Разблок") or (L["UI_IG"] or "Игнор")
+    row.buttons.ignore:SetText(ignoreText)
+end
+
 
 function UI:CreateRowButtons(row)
     local buttons = {}
@@ -528,12 +675,84 @@ function UI:CreateRowButtons(row)
     infoBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     buttons.info = infoBtn
     
+    local dropdown = CreateFrame("Frame", "ReputationListRowDropdown"..tostring(row.index), row, "UIDropDownMenuTemplate")
+    dropdown:SetPoint("RIGHT", infoBtn, "LEFT", 105, -2)
+    UIDropDownMenu_SetWidth(dropdown, 8)
+    UIDropDownMenu_SetText(dropdown, "BL")
+    
+    row.selectedListType = "blacklist"
+    
+    local function OnDropdownClick(self)
+        UIDropDownMenu_SetSelectedID(dropdown, self:GetID())
+        row.selectedListType = self.value
+        local shortNames = {blacklist = "BL", whitelist = "WL", notelist = "NL"}
+        UIDropDownMenu_SetText(dropdown, shortNames[self.value])
+    end
+    
+    local function InitializeDropdown(self, level)
+        local info = UIDropDownMenu_CreateInfo()
+        
+        info.text = "Blacklist"
+        info.value = "blacklist"
+        info.func = OnDropdownClick
+        info.checked = (row.selectedListType == "blacklist")
+        UIDropDownMenu_AddButton(info, level)
+        
+        info.text = "Whitelist"
+        info.value = "whitelist"
+        info.func = OnDropdownClick
+        info.checked = (row.selectedListType == "whitelist")
+        UIDropDownMenu_AddButton(info, level)
+        
+        info.text = "Notelist"
+        info.value = "notelist"
+        info.func = OnDropdownClick
+        info.checked = (row.selectedListType == "notelist")
+        UIDropDownMenu_AddButton(info, level)
+    end
+    
+    UIDropDownMenu_Initialize(dropdown, InitializeDropdown)
+    dropdown:Hide()
+    row.listTypeDropdown = dropdown
+    
+    local addToListBtn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    addToListBtn:SetSize(20, buttonSize)
+    addToListBtn:SetPoint("RIGHT", startX, 0)
+    addToListBtn:SetText("+")
+    addToListBtn:SetScript("OnClick", function()
+        if row.playerData and row.selectedListType then
+            local listType = row.selectedListType or "blacklist"
+            local note = L["UI_ADDED_FROM_GROUP"] or "Добавлен из группы"
+            
+            local unit = nil
+            if RL.FindPlayerInGroup then
+                unit = RL.FindPlayerInGroup(row.playerData.name)
+            end
+            
+            RL:AddPlayerDirect(row.playerData.name, listType, note, unit, row.playerData)
+            UI:RefreshList()
+        end
+    end)
+    addToListBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText(L["UI_ADD"] or "Добавить", 0, 1, 0)
+        GameTooltip:Show()
+    end)
+    addToListBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    addToListBtn:Hide()
+    buttons.addToList = addToListBtn
+    
     return buttons
 end
 
 
 function UI:RefreshList()
     if STATE.currentTab == "settings" then
+        return
+    end
+    
+    if STATE.showGroupMembers then
+        UI:RefreshGroupMembersList()
         return
     end
     
@@ -586,6 +805,11 @@ function UI:RefreshList()
 end
 
 function UI:UpdateVisibleRows()
+    if STATE.showGroupMembers then
+        UI:UpdateGroupMembersVisibleRows()
+        return
+    end
+    
     local players = CACHE.filteredPlayers or STATE.filteredPlayers or {}
     
     for i = 1, CONFIG.VISIBLE_ROWS do
@@ -596,48 +820,13 @@ function UI:UpdateVisibleRows()
         
         if dataIndex <= #players then
             local data = players[dataIndex]
-            
-            local nameColor = {1, 1, 1}
-            if STATE.currentTab == "blacklist" then
-                nameColor = {1, 0, 0}
-            elseif STATE.currentTab == "whitelist" then
-                nameColor = {0, 1, 0}
-            elseif STATE.currentTab == "notelist" then
-                nameColor = {1, 0.66, 0}
-            end
-            
-            if row.playerName ~= data.name then
-                row.nameText:SetText(data.name or "???")
-                row.nameText:SetTextColor(nameColor[1], nameColor[2], nameColor[3])
-                row.playerName = data.name
-            end
-            
-            if row.playerNote ~= data.note then
-                row.noteText:SetText(data.note or "")
-                row.noteText:SetTextColor(0.9, 0.9, 0.9)
-                row.playerNote = data.note
-            end
-            
-            if row.playerData ~= data then
-                row.playerData = data
-            end
-            
-            local ignored = RL.IsInBlizzardIgnore(data.name)
-            local newText = ignored and L["UI_UNLOCK"] or L["UI_IG"]
-            if row.buttons.ignore:GetText() ~= newText then
-                row.buttons.ignore:SetText(newText)
-            end
-            
-            if not row:IsShown() then
-                row:Show()
-            end
+            UI:UpdateRowDisplay(row, data, false)
+            row:Show()
         else
-            if row:IsShown() then
-                row:Hide()
-                row.playerName = nil
-                row.playerNote = nil
-                row.playerData = nil
-            end
+            row:Hide()
+            row.playerName = nil
+            row.playerNote = nil
+            row.playerData = nil
         end
     end
 end
@@ -789,6 +978,21 @@ StaticPopupDialogs["REPUTATION_KICK_PROMPT"] = {
         local playerName = data.name
         local note = self.editBox:GetText() or L["UI_BAD_P"]
         
+        local isLeader = false
+        if UnitInRaid("player") then
+            if GetNumRaidMembers() > 0 then
+                local _, rank = GetRaidRosterInfo(UnitInRaid("player"))
+                isLeader = (rank == 2)
+            end
+        elseif GetNumPartyMembers() > 0 then
+            isLeader = (GetPartyLeaderIndex() == 0)
+        end
+        
+        if not isLeader then
+            print(L["WH_D05"])
+            return
+        end
+        
         if RL and RL.AddPlayerDirect then
             RL:AddPlayerDirect(playerName, "blacklist", note, "target")
         end
@@ -848,105 +1052,11 @@ function UI:ToggleIgnore(playerName, button)
 end
 
 function UI:CreatePlayerInfoFrame()
-    local f = CreateFrame("Frame", "RepListPlayerInfoFrame", UIParent)
-    f:SetSize(400, 350)
-    f:SetPoint("CENTER")
-    f:SetFrameStrata("DIALOG")
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:SetClampedToScreen(true)
-    f:RegisterForDrag("LeftButton")
-    
-    f:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 16,
-        insets = {left = 4, right = 4, top = 4, bottom = 4}
+    return Common.CreatePlayerCardBase(L, {
+        frameName = "RepListPlayerInfoFrame",
+        applyStyle = nil,
+        withArmoryLink = true
     })
-    f:SetBackdropColor(0.1, 0.1, 0.1, 0.95)
-    
-    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-    
-    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    f.title:SetPoint("TOP", 0, -15)
-    f.title:SetTextColor(1, 0, 0)
-    f.title:SetText(L["UI_POP1"] .. "BLACKLIST")
-    
-    f.factionLogo = f:CreateTexture(nil, "ARTWORK")
-    f.factionLogo:SetSize(80, 80)
-    f.factionLogo:SetPoint("TOPLEFT", 20, -50)
-    
-    local startY = -50
-    local leftX = 110
-    
-    f.nameLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.nameLabel:SetPoint("TOPLEFT", leftX, startY)
-    f.nameLabel:SetText(L["UI_LBL_NM"])
-    
-    f.nameValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.nameValue:SetPoint("LEFT", f.nameLabel, "RIGHT", 5, 0)
-    f.nameValue:SetWidth(200)
-    f.nameValue:SetJustifyH("LEFT")
-    
-    f.classLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.classLabel:SetPoint("TOPLEFT", leftX, startY - 25)
-    f.classLabel:SetText(L["UI_LBL_CL"])
-    
-    f.classValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.classValue:SetPoint("LEFT", f.classLabel, "RIGHT", 5, 0)
-    
-    f.raceLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.raceLabel:SetPoint("TOPLEFT", leftX, startY - 45)
-    f.raceLabel:SetText(L["UI_LBL_RC"])
-    
-    f.raceValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.raceValue:SetPoint("LEFT", f.raceLabel, "RIGHT", 5, 0)
-    
-    f.levelLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.levelLabel:SetPoint("TOPLEFT", leftX, startY - 65)
-    f.levelLabel:SetText(L["UI_CB45"])
-    
-    f.levelValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.levelValue:SetPoint("LEFT", f.levelLabel, "RIGHT", 5, 0)
-    
-    f.guildLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.guildLabel:SetPoint("TOPLEFT", leftX, startY - 85)
-    f.guildLabel:SetText(L["UI_LBL_GLD"])
-    
-    f.guildValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.guildValue:SetPoint("LEFT", f.guildLabel, "RIGHT", 5, 0)
-    f.guildValue:SetWidth(200)
-    f.guildValue:SetJustifyH("LEFT")
-    
-    f.guidLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.guidLabel:SetPoint("TOPLEFT", 20, startY - 110)
-    f.guidLabel:SetText("|cFFFFFF00GUID:|r")
-    
-    f.guidValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.guidValue:SetPoint("LEFT", f.guidLabel, "RIGHT", 5, 0)
-    f.guidValue:SetWidth(300)
-    f.guidValue:SetJustifyH("LEFT")
-    
-    f.noteLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    f.noteLabel:SetPoint("TOPLEFT", 20, -175)
-    f.noteLabel:SetText(L["UI_LBL_NT"])
-    
-    f.noteText = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    f.noteText:SetPoint("TOPLEFT", 20, -195)
-    f.noteText:SetPoint("BOTTOMRIGHT", -20, 40)
-    f.noteText:SetJustifyH("LEFT")
-    f.noteText:SetJustifyV("TOP")
-    f.noteText:SetTextColor(1, 1, 0.5)
-    
-    local closeBtn = CreateFrame("Button", nil, f, "GameMenuButtonTemplate")
-    closeBtn:SetSize(100, 25)
-    closeBtn:SetPoint("BOTTOM", 0, 10)
-    closeBtn:SetText(L["UI_CLOSE"])
-    closeBtn:SetScript("OnClick", function() f:Hide() end)
-    
-    f:Hide()
-    return f
 end
 
 function UI:ShowPlayerInfo(data)
@@ -1000,21 +1110,85 @@ function UI:ShowPlayerInfo(data)
     f.levelValue:SetText(tostring(data.level or "?"))
     f.guildValue:SetText(data.guild or L["NO"])
     f.guidValue:SetText(data.guid or L["UI_F_V"])
+    
+    f.currentPlayerData = data
+    
+    f.armoryLinkEditBox:SetText(data.armoryLink or "")
+    f.armoryLinkEditBox:SetCursorPosition(0)
+    
+    f.armoryLinkSaveBtn:SetScript("OnClick", function(self)
+        local newLink = f.armoryLinkEditBox:GetText()
+        local playerData = f.currentPlayerData
+        
+        if not playerData or not playerData.name then
+            print(L["WH_D06"])
+            return
+        end
+        
+        local realmData = RL:GetRealmData()
+        
+        local listType = playerData.listType or STATE.currentTab
+        if listType == "whohere" then
+            local searchKey = string.lower(RL.NormalizeName(playerData.name))
+            if realmData.blacklist[searchKey] then
+                listType = "blacklist"
+            elseif realmData.whitelist[searchKey] then
+                listType = "whitelist"
+            elseif realmData.notelist[searchKey] then
+                listType = "notelist"
+            else
+                if not ReputationGroupTrackerDB then
+                    ReputationGroupTrackerDB = {}
+                end
+                if not ReputationGroupTrackerDB.whoHereCache then
+                    ReputationGroupTrackerDB.whoHereCache = {}
+                end
+                
+                local key = string.lower(RL.NormalizeName(playerData.name))
+                if not ReputationGroupTrackerDB.whoHereCache[key] then
+                    ReputationGroupTrackerDB.whoHereCache[key] = {}
+                end
+                ReputationGroupTrackerDB.whoHereCache[key].armoryLink = newLink
+                
+                print(L["WH_SV"] .. playerData.name)
+                return
+            end
+        end
+        
+        if listType and realmData[listType] then
+            local key = string.lower(playerData.name)
+            if realmData[listType][key] then
+                realmData[listType][key].armoryLink = newLink
+                RL:SaveSettings()
+                print(L["WH_SV"] .. playerData.name)
+            end
+        end
+    end)
+    
     f.noteText:SetText(data.note or L["UI_F_N"])
     
     local key = string.lower(data.name or "")
-    if STATE.currentTab == "blacklist" then
+    
+    if STATE.showGroupMembers and not data.inList then
+        f.title:SetText(L["UI_POP_GROUP"] or "Информация - В группе/рейде")
+        f.title:SetTextColor(0.5, 0.7, 1)
+        f:SetBackdropBorderColor(0.5, 0.7, 1, 1)
+    elseif STATE.currentTab == "blacklist" or (data.inList and data.listType == "blacklist") then
         f.title:SetText(L["UI_POP1"] .. " - BLACKLIST")
         f.title:SetTextColor(1, 0, 0)
         f:SetBackdropBorderColor(0.8, 0.1, 0.1, 1)
-    elseif STATE.currentTab == "whitelist" then
+    elseif STATE.currentTab == "whitelist" or (data.inList and data.listType == "whitelist") then
         f.title:SetText(L["UI_POP2"] .. " - WHITELIST")
         f.title:SetTextColor(0, 1, 0)
         f:SetBackdropBorderColor(0.1, 0.8, 0.1, 1)
-    elseif STATE.currentTab == "notelist" then
+    elseif STATE.currentTab == "notelist" or (data.inList and data.listType == "notelist") then
         f.title:SetText(L["UI_POP3"] .. " - NOTELIST")
         f.title:SetTextColor(1, 0.84, 0)
         f:SetBackdropBorderColor(1, 0.84, 0, 1)
+    else
+        f.title:SetText(L["UI_INF"] or "Информация")
+        f.title:SetTextColor(1, 1, 1)
+        f:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
     end
     
     f:Show()
@@ -1070,12 +1244,12 @@ function UI:CreateSettingsPanel(parent)
     yOffset = yOffset - 35
     
     local notifyHeader = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    notifyHeader:SetPoint("TOPLEFT", 10, yOffset)
+    notifyHeader:SetPoint("TOPLEFT", 25, yOffset)
     notifyHeader:SetText(L["UI_UVD"])
     notifyHeader:SetTextColor(1, 1, 0)
     
     local protectionHeader = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    protectionHeader:SetPoint("TOPLEFT", 260, yOffset)
+    protectionHeader:SetPoint("TOPLEFT", 270, yOffset)
     protectionHeader:SetText(L["UI_DEF"])
     protectionHeader:SetTextColor(1, 1, 0)
     yOffset = yOffset - 25
@@ -1189,7 +1363,7 @@ function UI:CreateSettingsPanel(parent)
     cb4:SetPoint("TOPLEFT", 20, yOffset)
     cb4.text = cb4:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     cb4.text:SetPoint("LEFT", cb4, "RIGHT", 5, 0)
-    cb4.text:SetText(L["UI_EDIT_NOTE"])
+    cb4.text:SetText(L["UI_CB8"])
     cb4:SetChecked(settings.soundNotify)
     cb4:SetScript("OnClick", function(self)
     local checked = self:GetChecked()
@@ -1575,7 +1749,14 @@ local function ImportFromReputationList(data)
                             if type(playerData) == "table" then
                                 local key = string.lower(playerName)
                                 if not ReputationListDB.realms[normalizedRealm][listType][key] then
-                                    ReputationListDB.realms[normalizedRealm][listType][key] = playerData
+                                    local newData = {}
+                                    for k, v in pairs(playerData) do
+                                        newData[k] = v
+                                    end
+                                    if playerData.armoryLink then
+                                        newData.armoryLink = playerData.armoryLink
+                                    end
+                                    ReputationListDB.realms[normalizedRealm][listType][key] = newData
                                     imported = imported + 1
                                 end
                             end
@@ -1814,6 +1995,73 @@ function UI:Initialize()
     end)
 
 end
+
+function UI:RefreshGroupMembersList()
+    if not RL.GroupTracker then return end
+    
+    if RL.GroupTracker.ForceUpdate then
+        RL.GroupTracker:ForceUpdate()
+    end
+    
+    if CACHE.settingsPanel then CACHE.settingsPanel:Hide() end
+    if CACHE.scrollFrame then CACHE.scrollFrame:Show() end
+    if CACHE.addPlayerForm then CACHE.addPlayerForm:Hide() end
+    if CACHE.tableHeader then CACHE.tableHeader:Show() end
+    
+    local members = RL.GroupTracker:GetAllGroupMembersWithListInfo()
+    
+    if not CACHE.filteredPlayers then
+        CACHE.filteredPlayers = {}
+    end
+    
+    for i = #CACHE.filteredPlayers, 1, -1 do
+        CACHE.filteredPlayers[i] = nil
+    end
+    
+    local count = 0
+    for _, member in ipairs(members) do
+        if STATE.searchText == "" or 
+           member.name:lower():find(STATE.searchText, 1, true) or
+           (member.note and member.note:lower():find(STATE.searchText, 1, true)) then
+            count = count + 1
+            CACHE.filteredPlayers[count] = member
+        end
+    end
+    
+    local maxScroll = math.max(0, count - CONFIG.VISIBLE_ROWS)
+    CACHE.scrollFrame.scrollbar:SetMinMaxValues(0, maxScroll)
+    
+    STATE.filteredPlayers = CACHE.filteredPlayers
+    
+    UI:UpdateGroupMembersVisibleRows()
+end
+
+function UI:UpdateGroupMembersVisibleRows()
+    local players = CACHE.filteredPlayers or STATE.filteredPlayers or {}
+    
+    for i = 1, CONFIG.VISIBLE_ROWS do
+        local row = CACHE.rows[i]
+        if not row then break end
+        
+        local dataIndex = STATE.scrollOffset + i
+        
+        if dataIndex <= #players then
+            local data = players[dataIndex]
+            UI:UpdateRowDisplay(row, data, true)
+            row:Show()
+        else
+            row:Hide()
+        end
+    end
+end
+
+function UI:OnGroupUpdate()
+    if STATE.showGroupMembers then
+        UI:RefreshList()
+        UI:UpdateTabAppearance()
+    end
+end
+
 
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
