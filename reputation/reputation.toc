@@ -2,7 +2,7 @@
 ## Title: |cFF00FF00Reputation|r List
 ## Notes: Система управления репутацией игроков с Blacklist, Whitelist и Notelist
 ## Author: Combass
-## Version: 1.70
+## Version: 1.75
 ## SavedVariables: ReputationListDB, ReputationTrackerDB, ReputationGroupTrackerDB
 ## OptionalDeps: ElvUI
 rep_save_fix.lua
@@ -19,4 +19,6 @@ rep_social.lua
 rep_group_tracker.lua
 rep_ui_cl.lua
 rep_ui_elvui.lua
+rep_post.lua
+rep_auction.lua
 minimap.lua

@@ -1250,7 +1250,6 @@ function SocialUI:ToggleIgnore(playerName, button)
     end)
 end
 
-
 function SocialUI:ShowReputationList()
     if not CACHE.container then
         self:CreateContainer()
@@ -1283,8 +1282,6 @@ function SocialUI:ShowReputationList()
     self:RefreshList()
 end
 
-
-
 local function UpdateRaidMarks()
     if not GetNumRaidMembers or GetNumRaidMembers() == 0 then return end
     
@@ -1295,11 +1292,6 @@ local function UpdateRaidMarks()
             
             if nameText then
                 local cleanName = nameText:gsub("%[BL%]%s*", ""):gsub("%[WL%]%s*", ""):gsub("%[NL%]%s*", "")
-                
-                if button.repMarkup then
-                    button.repMarkup:Hide()
-                    button.repMarkup = nil
-                end
                 
                 local nameFS = nil
                 for _, region in pairs({button:GetRegions()}) do
@@ -1313,14 +1305,21 @@ local function UpdateRaidMarks()
                 end
                 
                 if nameFS then
+                    nameFS:SetText(cleanName)
+                    
+                    if button.repMarkup then
+                        if button.repMarkup.Hide then
+                            button.repMarkup:Hide()
+                        end
+                        button.repMarkup = nil
+                    end
+                    
                     local listType = CheckPlayerInLists(cleanName)
                     if listType then
                         local markup, color = GetListMarkup(listType)
-                        if markup and color then
-                            RL.UICommon.CreatePlayerMarkupButton(button, nameFS, cleanName, listType, markup, color, L, CACHE, STATE, SocialUI)
+                        if color then
+                            RL.UICommon.CreateRaidPlayerMarkup(button, cleanName, listType, color)
                         end
-                    else
-                        nameFS:SetText(cleanName)
                     end
                 end
             end
@@ -1334,9 +1333,26 @@ local function UpdateGuildMarks()
     local offset = FauxScrollFrame_GetOffset(GuildListScrollFrame)
     local totalMembers = GetNumGuildMembers and GetNumGuildMembers() or 0
     
+    local isElvUI = (ElvUI and E and S) and true or false
+    
     for i = 1, GUILDMEMBERS_TO_DISPLAY do
         local button = _G["GuildFrameButton"..i]
         local memberIndex = offset + i
+        
+        if button then
+            if button.repMarkup then
+                if button.repMarkup.Hide then
+                    button.repMarkup:Hide()
+                end
+                button.repMarkup = nil
+            end
+            if button.repMarkupBtn then
+                button.repMarkupBtn:Hide()
+            end
+            if button.repHighlight then
+                button.repHighlight:Hide()
+            end
+        end
         
         if memberIndex <= totalMembers and button and button:IsShown() then
             local nameFS = nil
@@ -1354,21 +1370,14 @@ local function UpdateGuildMarks()
                 local nameText = nameFS:GetText()
                 if nameText then
                     local cleanName = nameText:gsub("%[BL%]%s*", ""):gsub("%[WL%]%s*", ""):gsub("%[NL%]%s*", "")
-                    
-                    if button.repMarkup then
-                        button.repMarkup:Hide()
-                        button.repMarkup = nil
-                    end
+                    nameFS:SetText(cleanName)
                     
                     local listType = CheckPlayerInLists(cleanName)
                     if listType then
                         local markup, color = GetListMarkup(listType)
                         if markup and color then
-                            RL.UICommon.CreatePlayerMarkupButton(button, nameFS, cleanName, listType, markup, color, L, CACHE, STATE, SocialUI)
+                            RL.UICommon.CreateGuildPlayerMarkup(button, nameFS, cleanName, listType, markup, color, L, CACHE, STATE, SocialUI, isElvUI)
                         end
-                    else
-                        nameFS:SetText(cleanName)
-                        nameFS:SetTextColor(1, 0.82, 0)
                     end
                 end
             end
@@ -1391,6 +1400,9 @@ local function HookRaidRoster()
             end
         end)
     end)
+	hooksecurefunc("RaidGroupFrame_Update", function()
+		UpdateRaidMarks()
+	end)
 end
 
 local function HookGuildRoster()

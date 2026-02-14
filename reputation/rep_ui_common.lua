@@ -898,53 +898,112 @@ function Common.CreateStandardScrollBar(scrollFrame)
     return scrollbar
 end
 
-function Common.CreatePlayerMarkupButton(button, nameFS, cleanName, listType, markup, color, L, CACHE, STATE, SocialUI)
-    nameFS:SetText(cleanName)
-    nameFS:SetTextColor(color[1], color[2], color[3])
-    
-    local markupBtn = CreateFrame("Button", nil, button)
-    markupBtn:SetSize(30, 16)
-    markupBtn:SetPoint("LEFT", nameFS, "RIGHT", 2, 0)
-    markupBtn:SetFrameLevel(button:GetFrameLevel() + 1)
-    
-    local markupText = markupBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    markupText:SetPoint("LEFT", 0, 0)
-    markupText:SetText(markup)
-    markupText:SetTextColor(color[1], color[2], color[3])
-    
-    markupBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText((L and L["UI_CB51"] or "View info: ") .. cleanName, 1, 1, 1)
-        GameTooltip:AddLine(L and L["UI_CB52"] or "Click to view in ReputationList", 0.7, 0.7, 0.7)
-        GameTooltip:Show()
-        markupText:SetTextColor(1, 1, 0)
-    end)
-    
-    markupBtn:SetScript("OnLeave", function(self)
-        GameTooltip:Hide()
-        markupText:SetTextColor(color[1], color[2], color[3])
-    end)
-    
-    markupBtn:SetScript("OnClick", function(self)
-        if not FriendsFrame:IsShown() then
-            ShowUIPanel(FriendsFrame)
-        end
+function Common.CreateRaidPlayerMarkup(button, cleanName, listType, color)
+    if not button.repHighlight then
+        local highlight = CreateFrame("Frame", nil, button)
+        highlight:SetAllPoints(button)
+        highlight:SetFrameLevel(button:GetFrameLevel() + 1)
         
-        if CACHE.tab then
-            PanelTemplates_Tab_OnClick(CACHE.tab, FriendsTabHeader)
-            SocialUI:ShowReputationList()
-            STATE.currentTab = listType
-            SocialUI:UpdateTabAppearance()
-            SocialUI:RefreshList()
-            
-            if CACHE.container and CACHE.container.searchBox then
-                CACHE.container.searchBox:SetText(cleanName)
-            end
-        end
-    end)
+        local texture = highlight:CreateTexture(nil, "ARTWORK")
+        texture:SetAllPoints()
+        texture:SetTexture("Interface\\Buttons\\WHITE8X8")
+        highlight.texture = texture
+        
+        button.repHighlight = highlight
+    end
     
-    markupBtn:Show()
-    button.repMarkup = markupBtn
+    button.repHighlight:SetFrameLevel(button:GetFrameLevel() + 1)
+    button.repHighlight.texture:SetVertexColor(color[1], color[2], color[3], 0.15)
+    button.repHighlight:Show()
+    
+    button.repMarkup = button.repHighlight
+end
+
+function Common.CreateGuildPlayerMarkup(button, nameFS, cleanName, listType, markup, color, L, CACHE, STATE, SocialUI, isElvUI)
+    if not button.repHighlight then
+        local highlight = CreateFrame("Frame", nil, button)
+        highlight:SetFrameLevel(button:GetFrameLevel() + 1)
+        
+        local texture = highlight:CreateTexture(nil, "ARTWORK")
+        texture:SetAllPoints()
+        texture:SetTexture("Interface\\Buttons\\WHITE8X8")
+        highlight.texture = texture
+        
+        button.repHighlight = highlight
+    end
+    
+    button.repHighlight:SetFrameLevel(button:GetFrameLevel() + 1)
+    
+    if not isElvUI then
+        button.repHighlight:ClearAllPoints()
+        button.repHighlight:SetPoint("TOPLEFT", button, "TOPLEFT", 10, 0)
+        button.repHighlight:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 0, 0)
+    else
+        button.repHighlight:SetAllPoints(button)
+    end
+    
+    button.repHighlight.texture:SetVertexColor(color[1], color[2], color[3], 0.15)
+    button.repHighlight:Show()
+    
+    if not button.repMarkupBtn then
+        local markupBtn = CreateFrame("Button", nil, button)
+        markupBtn:SetSize(20, 12)
+        markupBtn:SetPoint("LEFT", nameFS, "RIGHT", 85, 0)
+        markupBtn:SetFrameLevel(button:GetFrameLevel() + 2)
+        
+        local markupText = markupBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        markupText:SetPoint("CENTER", 0, 0)
+        markupBtn.text = markupText
+        
+        markupBtn:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText((L and L["UI_CB51"] or "View info: ") .. self.playerName, 1, 1, 1)
+            GameTooltip:AddLine(L and L["UI_CB52"] or "Click to view in ReputationList", 0.7, 0.7, 0.7)
+            GameTooltip:Show()
+            self.text:SetTextColor(1, 1, 0)
+        end)
+        
+        markupBtn:SetScript("OnLeave", function(self)
+            GameTooltip:Hide()
+            local col = self.markupColor
+            if col then
+                self.text:SetTextColor(col[1], col[2], col[3])
+            end
+        end)
+        
+        markupBtn:SetScript("OnClick", function(self)
+            if not FriendsFrame:IsShown() then
+                ShowUIPanel(FriendsFrame)
+            end
+            
+            if CACHE.tab then
+                PanelTemplates_Tab_OnClick(CACHE.tab, FriendsTabHeader)
+                SocialUI:ShowReputationList()
+                STATE.currentTab = self.listType
+                SocialUI:UpdateTabAppearance()
+                SocialUI:RefreshList()
+                
+                if CACHE.container and CACHE.container.searchBox then
+                    CACHE.container.searchBox:SetText(self.playerName)
+                end
+            end
+        end)
+        
+        button.repMarkupBtn = markupBtn
+    end
+    
+    button.repMarkupBtn.text:SetText(markup)
+    button.repMarkupBtn.text:SetTextColor(color[1], color[2], color[3])
+    button.repMarkupBtn.playerName = cleanName
+    button.repMarkupBtn.listType = listType
+    button.repMarkupBtn.markupColor = color
+    button.repMarkupBtn:Show()
+    
+    button.repMarkup = button.repMarkupBtn
+end
+
+function Common.CreatePlayerMarkupButton(button, nameFS, cleanName, listType, markup, color, L, CACHE, STATE, SocialUI)
+    Common.CreateGuildPlayerMarkup(button, nameFS, cleanName, listType, markup, color, L, CACHE, STATE, SocialUI, false)
 end
 
 return Common

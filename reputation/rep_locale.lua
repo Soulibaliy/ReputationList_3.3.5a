@@ -355,6 +355,9 @@ local Translations = {
 		["WEM40"] = "|cFFFF9900[RepList]|r В ЧС есть игрок с ником '",
 		["WEM41"] = "', но GUID другой. Игрок НЕ заблокирован.",
 		["WEM42"] = "|cFFFF0000ReputationList:|r UI не готов.",
+		["AUC01"] = "|cFFFF0000ВНИМАНИЕ!|r\n\nВы собираетесь совершить покупку у:\n|cFFFF6666%s|r\n\nЭтот игрок находится в вашем |cFFFF0000черном списке|r.",
+		["AUC02"] = "\n\nЗаметка: |cFFFFFF00%s|r.",
+		["AUC03"] = "Купить",
         
         ["SETTINGS_TITLE"] = "Настройки Reputation List",
         ["SETTINGS_AUTO_NOTIFY"] = "Автооповещение в чат группы",
@@ -705,6 +708,9 @@ local Translations = {
 		["WEM40"] = "|cFFFF9900[RepList]|r Blacklist has a player with name '",
 		["WEM41"] = "', but GUID is different. Player NOT blocked.",
 		["WEM42"] = "|cFFFF0000ReputationList:|r UI not ready.",
+		["AUC01"] = "|cFFFF0000WARNING!|r\n\nYou are about to buy from:\n|cFFFF6666%s|r\n\nThis player is in your |cFFFF0000Blacklist|r.",
+		["AUC02"] = "\n\nNote: |cFFFFFF00%s|r.",
+		["AUC03"] = "Buy Anyway",
         
         ["SETTINGS_TITLE"] = "Reputation List Settings",
         ["SETTINGS_AUTO_NOTIFY"] = "Auto-notify to group chat",

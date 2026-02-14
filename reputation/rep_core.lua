@@ -1,6 +1,6 @@
 ReputationList = ReputationList or {}
 local RL = ReputationList
-RL.version = "1.70"
+RL.version = "1.75"
 if not RL.SanitizeString then
     error("Security module not loaded! Check .toc file order.")
 end
