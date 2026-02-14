@@ -2,7 +2,7 @@
 
 Комплексный аддон для ведения черного списка, белого списка и заметок игроков с расширенными возможностями отслеживания.
 
-![Версия](https://img.shields.io/badge/версия-1.70-blue)
+![Версия](https://img.shields.io/badge/версия-1.75-blue)
 ![WoW](https://img.shields.io/badge/WoW-3.3.5a-orange)
 ![Лицензия](https://img.shields.io/badge/лицензия-MIT-green)
 
