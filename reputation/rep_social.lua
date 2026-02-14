@@ -1400,9 +1400,6 @@ local function HookRaidRoster()
             end
         end)
     end)
-	hooksecurefunc("RaidGroupFrame_Update", function()
-		UpdateRaidMarks()
-	end)
 end
 
 local function HookGuildRoster()
