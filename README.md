@@ -2,7 +2,7 @@
 
 A comprehensive addon for managing blacklists, whitelists, and player notes with advanced tracking capabilities.
 
-![Version](https://img.shields.io/badge/version-1.70-blue)
+![Version](https://img.shields.io/badge/version-1.75-blue)
 ![WoW](https://img.shields.io/badge/WoW-3.3.5a-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
