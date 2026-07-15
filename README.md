@@ -110,7 +110,26 @@ Copy the file manually:
 
 ## Screenshots
 
+### Addon UI
+Addon view opened by the button on the minimap or by `/rlelvui` in chat
 
+![Addon UI](./screenshots/UI.png)
+
+### New tab in Social
+![New tab in Social](./screenshots/Social.png)
+
+### New options in the chat context menu
+![Chat menu options](./screenshots/menu_chat.jpg)
+
+### Card of a character from the list
+![Profile card](./screenshots/card.jpg)
+
+### Warning when seller is from your Blacklist
+![Auction check](./screenshots/auc.jpg)
+
+### Marking mail from Black list players
+![Marking mail from Black list players. ElvUI](./screenshots/mail_01.jpg)
+![Marking mail from Black list players. Classic interface](./screenshots/mail_02.jpg)
 
 ##  Changelog
 
