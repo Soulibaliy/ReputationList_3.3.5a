@@ -22,4 +22,9 @@ All notable changes to Reputation addon will be documented in this file.
 
 ## [Unreleased]
 
+### Documentation
+- Added EN/RU README screenshot sections (UI, Social tab, chat menu, profile card, auction warning, mail marking)
+- Fixed README links to CHANGELOG and LICENSE
+- Standardized README headings and formatting
+
 ### Planned
