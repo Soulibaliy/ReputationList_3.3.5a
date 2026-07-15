@@ -136,7 +136,7 @@ Addon view opened by the button on the minimap or by `/rlelvui` in chat
 ### Version 1.70
 - Current stable release
 
-See(CHANGELOG.md) for full version history.
+See [CHANGELOG](/CHANGELOG.md) for full version history.
 
 ## Contributing
 
@@ -144,7 +144,7 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 ## License
 
-This project is licensed under the MIT License - see the(LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](/LICENSE) file for details.
 
 ## Disclaimer
 
