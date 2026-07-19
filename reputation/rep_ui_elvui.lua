@@ -541,7 +541,7 @@ function UI:CreateRowButtons(row)
     StyleElvUIButton(editBtn)
     
     local editText = editBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    editText:SetPoint("CENTER")
+    editText:SetPoint("CENTER", -2, 0)
     editText:SetText("✎")
     editText:SetTextColor(0.3, 0.8, 1)
     
@@ -606,7 +606,7 @@ function UI:CreateRowButtons(row)
     buttons.info = infoBtn
     
     local dropdown = CreateFrame("Frame", "ReputationListRowDropdownElvUI"..tostring(row.index), row, "UIDropDownMenuTemplate")
-    dropdown:SetPoint("RIGHT", infoBtn, "LEFT", 105, -7)
+    dropdown:SetPoint("RIGHT", infoBtn, "LEFT", 105, -5)
     UIDropDownMenu_SetWidth(dropdown, 20)
     UIDropDownMenu_SetText(dropdown, "BL")
     
@@ -1177,6 +1177,9 @@ function UI:ShowPlayerInfo(data)
         if listType and realmData[listType] then
             local key = string.lower(playerData.name)
             if realmData[listType][key] then
+                if realmData[listType][key].armoryLink ~= newLink and RL.AddHistoryRecord then
+                    RL.AddHistoryRecord(realmData[listType][key], L["HIST_CHANGE_ARMORY"])
+                end
                 realmData[listType][key].armoryLink = newLink
                 RL:SaveSettings()
                 print(L["WH_SV"] .. playerData.name)
@@ -1206,6 +1209,10 @@ function UI:ShowPlayerInfo(data)
         f.title:SetText(L["UI_INF"])
         f.title:SetTextColor(1, 1, 1)
         f:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+    end
+    
+    if f.SetViewMode then
+        f.SetViewMode("info")
     end
     
     f:Show()

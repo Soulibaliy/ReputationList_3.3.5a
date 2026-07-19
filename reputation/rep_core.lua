@@ -1,6 +1,6 @@
 ReputationList = ReputationList or {}
 local RL = ReputationList
-RL.version = "1.75"
+RL.version = "1.80"
 if not RL.SanitizeString then
     error("Security module not loaded! Check .toc file order.")
 end
@@ -131,6 +131,86 @@ local function GetCurrentRealm()
     return NormalizeRealm(realm)
 end
 
+RL.GetCurrentRealmName = GetCurrentRealm
+
+local MAX_HISTORY_ENTRIES = 5
+
+function RL.AddHistoryRecord(playerData, changeText)
+    if not playerData or not changeText or changeText == "" then return end
+
+    if not playerData.history then
+        playerData.history = {}
+    end
+
+    table.insert(playerData.history, 1, {
+        date = date("%d.%m.%Y %H:%M"),
+        by = UnitName("player") or "?",
+        change = changeText,
+    })
+
+    for i = #playerData.history, MAX_HISTORY_ENTRIES + 1, -1 do
+        table.remove(playerData.history, i)
+    end
+
+    local last = playerData.history[1]
+    playerData.lastUpdateDate = last.date
+    playerData.lastUpdateBy = last.by
+    playerData.lastUpdateChange = last.change
+end
+
+-- Если "снимок на момент добавления" был полностью пуст (игрока добавили
+-- без единого известного поля - просто по имени), заполняет его первыми
+-- реально узнанными данными. Если в снимке уже есть хоть одно известное
+-- поле, ничего не трогает - снимок остаётся историческим и неизменным.
+function RL.BackfillAddedSnapshot(playerData)
+    if not playerData or not playerData.addedSnapshot then return end
+    local snap = playerData.addedSnapshot
+
+    if snap.class or snap.race or snap.level or snap.guild or snap.faction then
+        return
+    end
+
+    if playerData.class or playerData.race or playerData.level or playerData.guild or playerData.faction then
+        snap.class = playerData.class
+        snap.race = playerData.race
+        snap.level = playerData.level
+        snap.guild = playerData.guild
+        snap.faction = playerData.faction
+    end
+end
+
+function RL.CheckAndHandleGUIDConflict(realmData, listType, oldKey, data, liveGuid)
+    if not data.guid or not liveGuid then
+        return false
+    end
+
+    if RL.CompareGUIDs(liveGuid, data.guid) then
+        return false
+    end
+
+    local list = realmData[listType]
+    local guidSuffix = data.guid:sub(-8)
+    local unknownName = "Unknown-" .. guidSuffix
+    local unknownKey = string.lower(unknownName)
+
+    print(L["WH_W07"] .. (data.name or oldKey) .. "'!")
+    print(L["INFO_R02"] .. data.guid .. "|r")
+    print(L["INFO_R03"] .. liveGuid .. "|r")
+
+    data.name = unknownName
+    data.key = NormalizeKey(unknownName)
+
+    list[unknownKey] = data
+    list[oldKey] = nil
+
+    print(L["WH_W10"] .. unknownName .. "|r")
+
+    RL.InvalidateCache()
+    RL:SaveSettings()
+
+    return true
+end
+
 local function FindEntryByGUID(list, guid)
     if not list or not guid then return nil end
     
@@ -191,7 +271,7 @@ local function ApplyNameChange(guidListType, guidKey, guidData, playerName, key,
     if currentInfo then
         if currentInfo.class   then guidData.class   = currentInfo.class   end
         if currentInfo.race    then guidData.race    = currentInfo.race    end
-        if currentInfo.level   then guidData.level   = currentInfo.level   end
+        if currentInfo.level   and currentInfo.level > 0 then guidData.level   = currentInfo.level   end
         if currentInfo.guild   then guidData.guild   = currentInfo.guild   end
         if currentInfo.faction then guidData.faction = currentInfo.faction end
     end
@@ -831,7 +911,7 @@ function RL:AddPlayer(args)
         local canCopyData = true
         
         if currentInfo and currentInfo.guid and existingData.guid then
-            if currentInfo.guid ~= existingData.guid then
+            if not RL.CompareGUIDs(currentInfo.guid, existingData.guid) then
                 canCopyData = false
                 
                 print(L["WH_W07"] .. playerName .. "'!")
@@ -887,11 +967,22 @@ function RL:AddPlayer(args)
         end
         if currentInfo.class then playerData.class = currentInfo.class end
         if currentInfo.race then playerData.race = currentInfo.race end
-        if currentInfo.level then playerData.level = currentInfo.level end
+        if currentInfo.level and currentInfo.level > 0 then playerData.level = currentInfo.level end
         if currentInfo.guild then playerData.guild = currentInfo.guild end
         if currentInfo.faction then playerData.faction = currentInfo.faction end
     end
     
+    playerData.addedRealm = GetCurrentRealm()
+    playerData.addedSnapshot = {
+        class = playerData.class,
+        race = playerData.race,
+        level = playerData.level,
+        guild = playerData.guild,
+        faction = playerData.faction,
+    }
+    playerData.history = playerData.history or {}
+    playerData.lastSeenDate = playerData.lastSeenDate or playerData.addedDate
+
     targetList[key] = playerData
     
     if not self.batchMode then
@@ -976,7 +1067,7 @@ function RL:AddPlayerDirect(playerName, listType, note, unit, cachedPlayerData)
         local canCopyData = true
         
         if currentInfo and currentInfo.guid and existingData.guid then
-            if currentInfo.guid ~= existingData.guid then
+            if not RL.CompareGUIDs(currentInfo.guid, existingData.guid) then
                 canCopyData = false
                 print(L["WEM01"] .. playerName .. "'")
                 print(L["WEM02"] .. existingListType .. L["WEM03"] .. listName .. "|r")
@@ -1005,7 +1096,7 @@ function RL:AddPlayerDirect(playerName, listType, note, unit, cachedPlayerData)
         if currentInfo.guid then playerData.guid = currentInfo.guid end
         if currentInfo.class then playerData.class = currentInfo.class end
         if currentInfo.race then playerData.race = currentInfo.race end
-        if currentInfo.level then playerData.level = currentInfo.level end
+        if currentInfo.level and currentInfo.level > 0 then playerData.level = currentInfo.level end
         if currentInfo.guild then playerData.guild = currentInfo.guild end
         if currentInfo.faction then playerData.faction = currentInfo.faction end
     elseif cachedPlayerData then
@@ -1017,6 +1108,17 @@ function RL:AddPlayerDirect(playerName, listType, note, unit, cachedPlayerData)
         if cachedPlayerData.faction then playerData.faction = cachedPlayerData.faction end
     end
     
+    playerData.addedRealm = GetCurrentRealm()
+    playerData.addedSnapshot = {
+        class = playerData.class,
+        race = playerData.race,
+        level = playerData.level,
+        guild = playerData.guild,
+        faction = playerData.faction,
+    }
+    playerData.history = playerData.history or {}
+    playerData.lastSeenDate = playerData.lastSeenDate or playerData.addedDate
+
     targetList[key] = playerData
     
     if playerData.guid and RL.UpdateGUIDIndex then
@@ -1332,6 +1434,7 @@ end
 
 function RL:CheckAndUpdatePlayer(name, guid, unit)
     if not name or not guid then return end
+    if name == UNKNOWN then return end   -- Blizzard ещё не прислал реальное имя юнита
     
     local normName = RL.NormalizeName(name)
     local searchKey = string.lower(normName)
@@ -1344,6 +1447,7 @@ function RL:CheckAndUpdatePlayer(name, guid, unit)
         local foundKey, foundData = FindEntryByGUID(list, guid)
         
         if foundKey and foundData then
+            local changes = {}
 
             if foundKey ~= searchKey then
 
@@ -1352,6 +1456,8 @@ function RL:CheckAndUpdatePlayer(name, guid, unit)
                 list[searchKey] = foundData
                 list[foundKey] = nil
                 
+                changes[#changes+1] = L["HIST_CHANGE_NAME"] .. " " .. (foundData.name or foundKey) .. " -> " .. normName
+
                 foundData.name = normName
                 foundData.key = NormalizeKey(normName)
                 updated = true
@@ -1359,27 +1465,41 @@ function RL:CheckAndUpdatePlayer(name, guid, unit)
             
             if unit and UnitExists(unit) and UnitIsPlayer(unit) then
                 local info = GetPlayerInfo(unit)
+                foundData.lastSeenDate = date("%d.%m.%Y %H:%M")
 
                 if info.class and info.class ~= foundData.class then 
                     print("|cFFFFAA00ReputationList:|r " .. normName .. L["CLASS_CHANGED"] .. (foundData.class or "?") .. " -> " .. info.class)
+                    changes[#changes+1] = L["HIST_CHANGE_CLASS"] .. " " .. (foundData.class or "?") .. " -> " .. info.class
                     foundData.class = info.class
                     updated = true 
                 end
                 if info.race and info.race ~= foundData.race then 
                     print("|cFFFFAA00ReputationList:|r " .. normName .. L["RACE_CHANGED"] .. (foundData.race or "?") .. " -> " .. info.race)
+                    changes[#changes+1] = L["HIST_CHANGE_RACE"] .. " " .. (foundData.race or "?") .. " -> " .. info.race
                     foundData.race = info.race
                     updated = true 
                 end
-                if info.level and info.level ~= foundData.level then foundData.level = info.level; updated = true end
-                if info.guild and info.guild ~= foundData.guild then foundData.guild = info.guild; updated = true end
+                if info.level and info.level > 0 and info.level ~= foundData.level then 
+                    changes[#changes+1] = L["HIST_CHANGE_LEVEL"] .. " " .. tostring(foundData.level or "?") .. " -> " .. tostring(info.level)
+                    foundData.level = info.level; updated = true 
+                end
+                if info.guild and info.guild ~= foundData.guild then 
+                    changes[#changes+1] = L["HIST_CHANGE_GUILD"] .. " " .. (foundData.guild or "?") .. " -> " .. info.guild
+                    foundData.guild = info.guild; updated = true 
+                end
                 if info.faction and info.faction ~= foundData.faction then 
                     print("|cFFFFAA00ReputationList:|r " .. normName .. L["FACTION_CHANGED"] .. (foundData.faction or "?") .. " -> " .. info.faction)
+                    changes[#changes+1] = L["HIST_CHANGE_FACTION"] .. " " .. (foundData.faction or "?") .. " -> " .. info.faction
                     foundData.faction = info.faction
                     updated = true 
                 end
             end
             
             if updated then
+                if #changes > 0 then
+                    RL.AddHistoryRecord(foundData, table.concat(changes, "; "))
+                    RL.BackfillAddedSnapshot(foundData)
+                end
                 RL.InvalidateCache()
                 RL:SaveSettings()
                 if UI and UI.RefreshList then
@@ -1392,38 +1512,56 @@ function RL:CheckAndUpdatePlayer(name, guid, unit)
         
         local data = list[searchKey]
         if data then
+            local changes = {}
+
             if data.name ~= normName then
+                changes[#changes+1] = L["HIST_CHANGE_NAME"] .. " " .. data.name .. " -> " .. normName
                 data.name = normName
                 updated = true
             end
             
             if not data.guid and guid then
                 data.guid = guid
+                changes[#changes+1] = L["HIST_CHANGE_GUID_LINKED"]
                 updated = true
             end
             
             if unit and UnitExists(unit) and UnitIsPlayer(unit) then
                 local info = GetPlayerInfo(unit)
                 
-                if data.guid and info.guid and info.guid ~= data.guid then
-
-                    print(L["INFO_R01"] .. normName .. "'!")
-                    print(L["INFO_R02"] .. data.guid .. "|r")
-                    print(L["INFO_R03"] .. info.guid .. "|r")
-                    print(L["INFO_R04"])
-                    
-
+                if info.guid and RL.CheckAndHandleGUIDConflict(realmData, listType, searchKey, data, info.guid) then
                     return false
                 end
                 
-                if info.class and info.class ~= data.class then data.class = info.class; updated = true end
-                if info.race and info.race ~= data.race then data.race = info.race; updated = true end
-                if info.level and info.level ~= data.level then data.level = info.level; updated = true end
-                if info.guild and info.guild ~= data.guild then data.guild = info.guild; updated = true end
-                if info.faction and info.faction ~= data.faction then data.faction = info.faction; updated = true end
+                data.lastSeenDate = date("%d.%m.%Y %H:%M")
+                
+                if info.class and info.class ~= data.class then 
+                    changes[#changes+1] = L["HIST_CHANGE_CLASS"] .. " " .. (data.class or "?") .. " -> " .. info.class
+                    data.class = info.class; updated = true 
+                end
+                if info.race and info.race ~= data.race then 
+                    changes[#changes+1] = L["HIST_CHANGE_RACE"] .. " " .. (data.race or "?") .. " -> " .. info.race
+                    data.race = info.race; updated = true 
+                end
+                if info.level and info.level > 0 and info.level ~= data.level then 
+                    changes[#changes+1] = L["HIST_CHANGE_LEVEL"] .. " " .. tostring(data.level or "?") .. " -> " .. tostring(info.level)
+                    data.level = info.level; updated = true 
+                end
+                if info.guild and info.guild ~= data.guild then 
+                    changes[#changes+1] = L["HIST_CHANGE_GUILD"] .. " " .. (data.guild or "?") .. " -> " .. info.guild
+                    data.guild = info.guild; updated = true 
+                end
+                if info.faction and info.faction ~= data.faction then 
+                    changes[#changes+1] = L["HIST_CHANGE_FACTION"] .. " " .. (data.faction or "?") .. " -> " .. info.faction
+                    data.faction = info.faction; updated = true 
+                end
             end
             
             if updated then
+                if #changes > 0 then
+                    RL.AddHistoryRecord(data, table.concat(changes, "; "))
+                    RL.BackfillAddedSnapshot(data)
+                end
                 RL.InvalidateCache()
                 RL:SaveSettings()
                 if UI and UI.RefreshList then
@@ -1581,6 +1719,14 @@ end
             end
         end
     end
+end
+
+if RL.TimerManager then
+    RL.TimerManager:Register("group_member_refresh", 20, function()
+        if RL.CheckGroupMembers then
+            RL:CheckGroupMembers()
+        end
+    end)
 end
 
 function RL:KickFromGroup(playerName, note)
@@ -1867,12 +2013,21 @@ function RL:CreatePlayerCardFrame()
     f.noteText:SetJustifyV("TOP")
     f.noteText:SetTextColor(1, 1, 0.5)
 
-    local closeBtn = CreateFrame("Button", nil, f, useElvUI and nil or "GameMenuButtonTemplate")
+    local closeBtn
+    if useElvUI then
+        closeBtn = CreateFrame("Button", nil, f)
+    else
+        closeBtn = CreateFrame("Button", nil, f, "GameMenuButtonTemplate")
+    end
     closeBtn:SetSize(100, 25)
     closeBtn:SetPoint("BOTTOM", 0, 10)
-    closeBtn:SetText(L["UI_CLOSE"])
     if useElvUI and S then
         S:HandleButton(closeBtn)
+        local closeBtnText = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        closeBtnText:SetPoint("CENTER")
+        closeBtnText:SetText(L["UI_CLOSE"])
+    else
+        closeBtn:SetText(L["UI_CLOSE"])
     end
     closeBtn:SetScript("OnClick", function()
         f:Hide()
@@ -1880,6 +2035,237 @@ function RL:CreatePlayerCardFrame()
             RL.shownCards[f.currentPlayer] = nil
         end
     end)
+
+    f.infoElements = {
+        f.factionLogo,
+        f.nameLabel, f.nameValue,
+        f.classLabel, f.classValue,
+        f.raceLabel, f.raceValue,
+        f.levelLabel, f.levelValue,
+        f.guildLabel, f.guildValue,
+        f.guidLabel, f.guidValue,
+        f.noteLabel, f.noteText,
+    }
+
+    local historyBtn
+    if useElvUI then
+        historyBtn = CreateFrame("Button", nil, f)
+    else
+        historyBtn = CreateFrame("Button", nil, f, "GameMenuButtonTemplate")
+    end
+    historyBtn:SetSize(90, 22)
+    historyBtn:SetPoint("TOPRIGHT", -10, -12)
+
+    local historyBtnTextFS
+    if useElvUI and S then
+        S:HandleButton(historyBtn)
+        historyBtnTextFS = historyBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        historyBtnTextFS:SetPoint("CENTER")
+        historyBtnTextFS:SetText(L["HIST_BTN"])
+    else
+        historyBtn:SetText(L["HIST_BTN"])
+    end
+
+    local function SetHistoryBtnText(text)
+        if historyBtnTextFS then
+            historyBtnTextFS:SetText(text)
+        else
+            historyBtn:SetText(text)
+        end
+    end
+
+    local HIST_ROW_HEIGHT = 16
+    local HIST_MAX_ROWS = 20
+    local sectionX = 20
+    local hy = -50
+
+    f.histPlayerLine = f:CreateFontString(nil, "OVERLAY")
+    if useElvUI then f.histPlayerLine:FontTemplate() else f.histPlayerLine:SetFontObject("GameFontHighlight") end
+    f.histPlayerLine:SetPoint("TOPLEFT", sectionX, hy)
+    f.histPlayerLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histPlayerLine:SetJustifyH("LEFT")
+    if f.histPlayerLine.SetWordWrap then f.histPlayerLine:SetWordWrap(false) end
+    hy = hy - 18
+
+    f.histAddedLine = f:CreateFontString(nil, "OVERLAY")
+    if useElvUI then f.histAddedLine:FontTemplate(nil, 11) else f.histAddedLine:SetFontObject("GameFontHighlightSmall") end
+    f.histAddedLine:SetPoint("TOPLEFT", sectionX, hy)
+    f.histAddedLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histAddedLine:SetJustifyH("LEFT")
+    if f.histAddedLine.SetWordWrap then f.histAddedLine:SetWordWrap(false) end
+    hy = hy - 16
+
+    f.histAddedByLine = f:CreateFontString(nil, "OVERLAY")
+    if useElvUI then f.histAddedByLine:FontTemplate(nil, 11) else f.histAddedByLine:SetFontObject("GameFontHighlightSmall") end
+    f.histAddedByLine:SetPoint("TOPLEFT", sectionX, hy)
+    f.histAddedByLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histAddedByLine:SetJustifyH("LEFT")
+    if f.histAddedByLine.SetWordWrap then f.histAddedByLine:SetWordWrap(false) end
+    hy = hy - 18
+
+    f.histDataHeader = f:CreateFontString(nil, "OVERLAY")
+    if useElvUI then f.histDataHeader:FontTemplate(nil, 11) else f.histDataHeader:SetFontObject("GameFontHighlightSmall") end
+    f.histDataHeader:SetPoint("TOPLEFT", sectionX, hy)
+    f.histDataHeader:SetText(L["HIST_ADDED_DATA"])
+    hy = hy - 15
+
+    f.histDataValue = f:CreateFontString(nil, "OVERLAY")
+    if useElvUI then f.histDataValue:FontTemplate(nil, 11) else f.histDataValue:SetFontObject("GameFontNormalSmall") end
+    f.histDataValue:SetPoint("TOPLEFT", sectionX + 5, hy)
+    f.histDataValue:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histDataValue:SetJustifyH("LEFT")
+    f.histDataValue:SetJustifyV("TOP")
+    f.histDataValue:SetSpacing(2)
+    hy = hy - 32
+
+    f.histLastSeenLine = f:CreateFontString(nil, "OVERLAY")
+    if useElvUI then f.histLastSeenLine:FontTemplate(nil, 11) else f.histLastSeenLine:SetFontObject("GameFontHighlightSmall") end
+    f.histLastSeenLine:SetPoint("TOPLEFT", sectionX, hy)
+    f.histLastSeenLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histLastSeenLine:SetJustifyH("LEFT")
+    if f.histLastSeenLine.SetWordWrap then f.histLastSeenLine:SetWordWrap(false) end
+    hy = hy - 18
+
+    f.histDivider = f:CreateTexture(nil, "ARTWORK")
+    f.histDivider:SetHeight(1)
+    f.histDivider:SetPoint("TOPLEFT", sectionX, hy)
+    f.histDivider:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histDivider:SetTexture(1, 1, 1, 0.2)
+    hy = hy - 10
+
+    f.histUpdatesSectionLabel = f:CreateFontString(nil, "OVERLAY")
+    if useElvUI then f.histUpdatesSectionLabel:FontTemplate() else f.histUpdatesSectionLabel:SetFontObject("GameFontNormal") end
+    f.histUpdatesSectionLabel:SetPoint("TOPLEFT", sectionX, hy)
+    f.histUpdatesSectionLabel:SetText(L["HIST_UPDATES_SECTION"])
+    f.histUpdatesSectionLabel:SetTextColor(1, 0.82, 0)
+    hy = hy - 16
+
+    f.histLastUpdateValue = f:CreateFontString(nil, "OVERLAY")
+    if useElvUI then f.histLastUpdateValue:FontTemplate(nil, 11) else f.histLastUpdateValue:SetFontObject("GameFontNormalSmall") end
+    f.histLastUpdateValue:SetPoint("TOPLEFT", sectionX, hy)
+    f.histLastUpdateValue:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histLastUpdateValue:SetJustifyH("LEFT")
+    f.histLastUpdateValue:SetTextColor(0.6, 1, 0.6)
+    hy = hy - 32
+
+    local histScrollFrame = CreateFrame("ScrollFrame", nil, f)
+    histScrollFrame:SetPoint("TOPLEFT", sectionX, hy)
+    histScrollFrame:SetPoint("BOTTOMRIGHT", -34, 40)
+
+    local histContent = CreateFrame("Frame", nil, histScrollFrame)
+    histContent:SetSize(1, 1)
+    histScrollFrame:SetScrollChild(histContent)
+
+    local histScrollbar = CreateFrame("Slider", nil, f)
+    histScrollbar:SetPoint("TOPLEFT", histScrollFrame, "TOPRIGHT", 4, 0)
+    histScrollbar:SetPoint("BOTTOMLEFT", histScrollFrame, "BOTTOMRIGHT", 4, 0)
+    histScrollbar:SetWidth(16)
+    histScrollbar:SetOrientation("VERTICAL")
+    histScrollbar:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+    histScrollbar:SetBackdrop({
+        bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+        edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+        tile = true, tileSize = 8, edgeSize = 8,
+        insets = { left = 3, right = 3, top = 6, bottom = 6 }
+    })
+    histScrollbar:SetMinMaxValues(0, 100)
+    histScrollbar:SetValueStep(1)
+    histScrollbar:SetValue(0)
+    histScrollbar:SetScript("OnValueChanged", function(self, value)
+        histScrollFrame:SetVerticalScroll(value)
+    end)
+
+    histScrollFrame:EnableMouseWheel(true)
+    histScrollFrame:SetScript("OnMouseWheel", function(self, delta)
+        local current = histScrollbar:GetValue()
+        local minV, maxV = histScrollbar:GetMinMaxValues()
+        local newV = math.max(minV, math.min(maxV, current - delta * (HIST_ROW_HEIGHT * 3)))
+        histScrollbar:SetValue(newV)
+    end)
+
+    f.histScrollFrame = histScrollFrame
+    f.histContent = histContent
+    f.histScrollbar = histScrollbar
+
+    f.histRows = {}
+    for i = 1, HIST_MAX_ROWS do
+        local row = histContent:CreateFontString(nil, "OVERLAY")
+        if useElvUI then row:FontTemplate(nil, 11) else row:SetFontObject("GameFontHighlightSmall") end
+        row:SetPoint("TOPLEFT", 0, 0)
+        row:SetPoint("RIGHT", histContent, "RIGHT", 0, 0)
+        row:SetJustifyH("LEFT")
+        row:SetJustifyV("TOP")
+        if row.SetWordWrap then row:SetWordWrap(true) end
+        row:Hide()
+        f.histRows[i] = row
+    end
+
+    f.histNoUpdatesText = histContent:CreateFontString(nil, "OVERLAY")
+    if useElvUI then f.histNoUpdatesText:FontTemplate(nil, 11) else f.histNoUpdatesText:SetFontObject("GameFontHighlightSmall") end
+    f.histNoUpdatesText:SetPoint("TOPLEFT", 0, 0)
+    f.histNoUpdatesText:SetText(L["HIST_NO_UPDATES"])
+    f.histNoUpdatesText:SetTextColor(0.6, 0.6, 0.6)
+    f.histNoUpdatesText:Hide()
+
+    f.histNoDataText = f:CreateFontString(nil, "OVERLAY")
+    if useElvUI then f.histNoDataText:FontTemplate() else f.histNoDataText:SetFontObject("GameFontHighlight") end
+    f.histNoDataText:SetPoint("CENTER", 0, -20)
+    f.histNoDataText:SetTextColor(1, 0.5, 0.5)
+    f.histNoDataText:SetText(L["HIST_NO_DATA"])
+    f.histNoDataText:Hide()
+
+    f.historyElements = {
+        f.histPlayerLine, f.histAddedLine, f.histAddedByLine,
+        f.histDataHeader, f.histDataValue, f.histLastSeenLine,
+        f.histDivider, f.histUpdatesSectionLabel, f.histLastUpdateValue,
+        f.histScrollFrame, f.histScrollbar,
+    }
+
+    f.viewMode = "info"
+
+    f.SetViewMode = function(mode)
+        f.viewMode = mode
+        local showInfo = (mode ~= "history")
+
+        for _, el in ipairs(f.infoElements) do
+            if el then
+                if showInfo then el:Show() else el:Hide() end
+            end
+        end
+        for _, el in ipairs(f.historyElements) do
+            if el then
+                if showInfo then el:Hide() else el:Show() end
+            end
+        end
+
+        if showInfo then
+            f.histNoDataText:Hide()
+            SetHistoryBtnText(L["HIST_BTN"])
+        else
+            SetHistoryBtnText(L["HIST_BACK_BTN"])
+        end
+    end
+
+    historyBtn:SetScript("OnClick", function()
+        if f.viewMode == "history" then
+            f.SetViewMode("info")
+        else
+            local realData = nil
+            if f.currentListType and f.currentPlayer then
+                local rd = RL:GetRealmData()
+                if rd and rd[f.currentListType] then
+                    realData = rd[f.currentListType][f.currentPlayer]
+                end
+            end
+            if RL.UICommon and RL.UICommon.PopulateHistoryWindow then
+                RL.UICommon.PopulateHistoryWindow(f, realData, L)
+            end
+            f.SetViewMode("history")
+        end
+    end)
+
+    f.historyBtn = historyBtn
+    f.SetViewMode("info")
 
     RL.playerCardFrame = f
     f:Hide()
@@ -1971,6 +2357,11 @@ elseif realmData.notelist[key] then
 end
 
     f.currentPlayer = string.lower(playerName or "")
+    f.currentListType = listType
+
+    if f.SetViewMode then
+        f.SetViewMode("info")
+    end
 end
 
 function RL:ShowPlayerCard(playerName, playerData, forceShow)
@@ -2542,6 +2933,7 @@ function RL:CheckMouseoverUnit()
     if foundData then
         local info = GetPlayerInfo("mouseover")
         local updated = false
+        local changes = {}
         
         local searchKey = string.lower(normName)
         if foundKey ~= searchKey then
@@ -2552,6 +2944,8 @@ function RL:CheckMouseoverUnit()
             list[searchKey] = foundData
             list[foundKey] = nil
             
+            changes[#changes+1] = L["HIST_CHANGE_NAME"] .. " " .. (foundData.name or foundKey) .. " -> " .. normName
+
             foundData.name = normName
             foundData.key = NormalizeKey(normName)
             updated = true
@@ -2561,25 +2955,40 @@ function RL:CheckMouseoverUnit()
             end
         end
         
+        foundData.lastSeenDate = date("%d.%m.%Y %H:%M")
+        
         if info.class and info.class ~= foundData.class then 
             print("|cFFFFAA00ReputationList:|r " .. normName .. " сменил класс: " .. (foundData.class or "?") .. " -> " .. info.class)
+            changes[#changes+1] = L["HIST_CHANGE_CLASS"] .. " " .. (foundData.class or "?") .. " -> " .. info.class
             foundData.class = info.class
             updated = true 
         end
         if info.race and info.race ~= foundData.race then 
             print("|cFFFFAA00ReputationList:|r " .. normName .. " сменил расу: " .. (foundData.race or "?") .. " -> " .. info.race)
+            changes[#changes+1] = L["HIST_CHANGE_RACE"] .. " " .. (foundData.race or "?") .. " -> " .. info.race
             foundData.race = info.race
             updated = true 
         end
-        if info.level and info.level ~= foundData.level then foundData.level = info.level; updated = true end
-        if info.guild and info.guild ~= foundData.guild then foundData.guild = info.guild; updated = true end
+        if info.level and info.level > 0 and info.level ~= foundData.level then 
+            changes[#changes+1] = L["HIST_CHANGE_LEVEL"] .. " " .. tostring(foundData.level or "?") .. " -> " .. tostring(info.level)
+            foundData.level = info.level; updated = true 
+        end
+        if info.guild and info.guild ~= foundData.guild then 
+            changes[#changes+1] = L["HIST_CHANGE_GUILD"] .. " " .. (foundData.guild or "?") .. " -> " .. info.guild
+            foundData.guild = info.guild; updated = true 
+        end
         if info.faction and info.faction ~= foundData.faction then 
             print("|cFFFFAA00ReputationList:|r " .. normName .. " сменил фракцию: " .. (foundData.faction or "?") .. " -> " .. info.faction)
+            changes[#changes+1] = L["HIST_CHANGE_FACTION"] .. " " .. (foundData.faction or "?") .. " -> " .. info.faction
             foundData.faction = info.faction
             updated = true 
         end
         
         if updated then
+            if #changes > 0 then
+                RL.AddHistoryRecord(foundData, table.concat(changes, "; "))
+                RL.BackfillAddedSnapshot(foundData)
+            end
             RL.InvalidateCache()
             self:SaveSettings()
             if UI and UI.RefreshList then
@@ -2596,46 +3005,49 @@ function RL:CheckMouseoverUnit()
             if data then
                 local info = GetPlayerInfo("mouseover")
                 local updated = false
+                local changes = {}
                 
-                if data.guid and info.guid and info.guid ~= data.guid then
-
-                    print(L["WEM28"] .. normName .. L["WEM29"])
-                    print(L["INFO_R02"] .. data.guid .. "|r")
-                    print(L["INFO_R03"] .. info.guid .. "|r")
-                    
+                if info.guid then
                     local realmData = self:GetRealmData()
-                    local list = realmData[listType]
-                    local oldKey = string.lower(normName)
-                    
-                    local guidSuffix = data.guid:sub(-8)
-                    local unknownName = "Unknown-" .. guidSuffix
-                    local unknownKey = string.lower(unknownName)
-                    
-                    data.name = unknownName
-                    data.key = NormalizeKey(unknownName)
-                    
-                    list[unknownKey] = data
-                    list[oldKey] = nil
-                    
-                    print(L["WH_W10"] .. unknownName .. "|r")
-                    
-                    RL.InvalidateCache()
-                    self:SaveSettings()
-                    return
+                    if RL.CheckAndHandleGUIDConflict(realmData, listType, string.lower(normName), data, info.guid) then
+                        return
+                    end
                 end
+                
+                data.lastSeenDate = date("%d.%m.%Y %H:%M")
                 
                 if not data.guid and info.guid then 
                     data.guid = info.guid
+                    changes[#changes+1] = L["HIST_CHANGE_GUID_LINKED"]
                     updated = true 
                 end
                 
-                if info.class and info.class ~= data.class then data.class = info.class; updated = true end
-                if info.race and info.race ~= data.race then data.race = info.race; updated = true end
-                if info.level and info.level ~= data.level then data.level = info.level; updated = true end
-                if info.guild and info.guild ~= data.guild then data.guild = info.guild; updated = true end
-                if info.faction and info.faction ~= data.faction then data.faction = info.faction; updated = true end
+                if info.class and info.class ~= data.class then 
+                    changes[#changes+1] = L["HIST_CHANGE_CLASS"] .. " " .. (data.class or "?") .. " -> " .. info.class
+                    data.class = info.class; updated = true 
+                end
+                if info.race and info.race ~= data.race then 
+                    changes[#changes+1] = L["HIST_CHANGE_RACE"] .. " " .. (data.race or "?") .. " -> " .. info.race
+                    data.race = info.race; updated = true 
+                end
+                if info.level and info.level > 0 and info.level ~= data.level then 
+                    changes[#changes+1] = L["HIST_CHANGE_LEVEL"] .. " " .. tostring(data.level or "?") .. " -> " .. tostring(info.level)
+                    data.level = info.level; updated = true 
+                end
+                if info.guild and info.guild ~= data.guild then 
+                    changes[#changes+1] = L["HIST_CHANGE_GUILD"] .. " " .. (data.guild or "?") .. " -> " .. info.guild
+                    data.guild = info.guild; updated = true 
+                end
+                if info.faction and info.faction ~= data.faction then 
+                    changes[#changes+1] = L["HIST_CHANGE_FACTION"] .. " " .. (data.faction or "?") .. " -> " .. info.faction
+                    data.faction = info.faction; updated = true 
+                end
                 
                 if updated then
+                    if #changes > 0 then
+                        RL.AddHistoryRecord(data, table.concat(changes, "; "))
+                        RL.BackfillAddedSnapshot(data)
+                    end
                     RL.InvalidateCache()
                     self:SaveSettings()
                     if UI and UI.RefreshList then
