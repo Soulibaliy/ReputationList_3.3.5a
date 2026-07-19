@@ -2,7 +2,7 @@
 
 A comprehensive addon for managing blacklists, whitelists, and player notes with advanced tracking capabilities.
 
-![Version](https://img.shields.io/badge/version-1.75-blue)
+![Version](https://img.shields.io/badge/version-1.80-blue)
 ![WoW](https://img.shields.io/badge/WoW-3.3.5a-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -72,6 +72,15 @@ Block blacklisted players from:
 - Private messages
 - Quick "Add to BL & Kick" button (for group/raid leaders)
 
+## History:
+
+- Added "History" tab to the character card.
+- Tracks date and author of player addition
+- Records the data the player was added with
+- Shows the last encounter date with the player
+- Maintains history of character data changes (limited to last 5 entries)
+
+
 ## Data Management
 
 ### Method 1: Merge Tool (Recommended)
@@ -114,7 +123,7 @@ Copy the file manually:
 
 ##  Changelog
 
-### Version 1.70
+### Version 1.80
 - Current stable release
 
 See(CHANGELOG.md) for full version history.
