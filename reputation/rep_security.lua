@@ -98,7 +98,7 @@ function Security:ValidateGUID(guid)
     local guidType = type(guid)
     
     if guidType == "string" then
-        if guid:match("^0x%x+$") and #guid >= 10 and #guid <= 18 then
+        if guid:match("^0x%x+$") and #guid >= 4 and #guid <= 18 then
             return true
         end
         
@@ -124,7 +124,11 @@ function Security:NormalizeGUID(guid)
     end
     
     if type(guid) == "string" and guid:match("^0x%x+$") then
-        return guid:lower()
+        local hexPart = guid:sub(3):lower()
+        if #hexPart < 16 then
+            hexPart = string.rep("0", 16 - #hexPart) .. hexPart
+        end
+        return "0x" .. hexPart
     end
     
     if type(guid) == "number" then

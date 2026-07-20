@@ -1158,6 +1158,9 @@ function UI:ShowPlayerInfo(data)
         if listType and realmData[listType] then
             local key = string.lower(playerData.name)
             if realmData[listType][key] then
+                if realmData[listType][key].armoryLink ~= newLink and RL.AddHistoryRecord then
+                    RL.AddHistoryRecord(realmData[listType][key], L["HIST_CHANGE_ARMORY"])
+                end
                 realmData[listType][key].armoryLink = newLink
                 RL:SaveSettings()
                 print(L["WH_SV"] .. playerData.name)
@@ -1189,6 +1192,10 @@ function UI:ShowPlayerInfo(data)
         f.title:SetText(L["UI_INF"] or "Информация")
         f.title:SetTextColor(1, 1, 1)
         f:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+    end
+    
+    if f.SetViewMode then
+        f.SetViewMode("info")
     end
     
     f:Show()

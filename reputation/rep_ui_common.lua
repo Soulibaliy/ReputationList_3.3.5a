@@ -590,7 +590,11 @@ function Common.EditPlayerDialog(playerName, currentNote, UI, STATE, L)
                 if targetList then
                     local key = string.lower(playerName)
                     if targetList[key] then
-                        targetList[key].note = newNote or ""
+                        newNote = newNote or ""
+                        if targetList[key].note ~= newNote and RL.AddHistoryRecord then
+                            RL.AddHistoryRecord(targetList[key], L and L["HIST_CHANGE_NOTE"] or "Note changed")
+                        end
+                        targetList[key].note = newNote
                         RL.InvalidateCache()
                         RL:SaveSettings()
                     end
@@ -637,7 +641,11 @@ function Common.EditPlayerDialog(playerName, currentNote, UI, STATE, L)
                 if targetList then
                     local key = string.lower(playerName)
                     if targetList[key] then
-                        targetList[key].note = newNote or ""
+                        newNote = newNote or ""
+                        if targetList[key].note ~= newNote and RL.AddHistoryRecord then
+                            RL.AddHistoryRecord(targetList[key], L and L["HIST_CHANGE_NOTE"] or "Note changed")
+                        end
+                        targetList[key].note = newNote
                         RL.InvalidateCache()
                         RL:SaveSettings()
                     end
@@ -695,6 +703,9 @@ function Common.KickPlayerDialog(playerName, UI, L)
     }
     StaticPopup_Show("REPUTATION_KICK_PROMPT", nil, nil, {name = playerName})
 end
+
+local HISTORY_MAX_VISIBLE_ROWS = 20
+local HISTORY_ROW_HEIGHT = 16
 
 function Common.CreatePlayerCardBase(L, options)
     
@@ -837,8 +848,29 @@ function Common.CreatePlayerCardBase(L, options)
     f.noteText:SetJustifyH("LEFT")
     f.noteText:SetJustifyV("TOP")
     f.noteText:SetTextColor(1, 1, 0.5)
+
+    f.infoElements = {
+        f.factionLogo,
+        f.nameLabel, f.nameValue,
+        f.classLabel, f.classValue,
+        f.raceLabel, f.raceValue,
+        f.levelLabel, f.levelValue,
+        f.guildLabel, f.guildValue,
+        f.guidLabel, f.guidValue,
+        f.noteLabel, f.noteText,
+    }
+    if options.withArmoryLink then
+        table.insert(f.infoElements, f.armoryLinkLabel)
+        table.insert(f.infoElements, f.armoryLinkEditBox)
+        table.insert(f.infoElements, f.armoryLinkSaveBtn)
+    end
     
-    local closeBtn = CreateFrame("Button", nil, f, options.applyStyle and nil or "GameMenuButtonTemplate")
+    local closeBtn
+    if options.applyStyle then
+        closeBtn = CreateFrame("Button", nil, f)
+    else
+        closeBtn = CreateFrame("Button", nil, f, "GameMenuButtonTemplate")
+    end
     closeBtn:SetSize(100, 25)
     closeBtn:SetPoint("BOTTOM", 0, 10)
     
@@ -852,9 +884,341 @@ function Common.CreatePlayerCardBase(L, options)
     end
     
     closeBtn:SetScript("OnClick", function() f:Hide() end)
-    
+
+    local historyBtn
+    if options.applyStyle then
+        historyBtn = CreateFrame("Button", nil, f)
+    else
+        historyBtn = CreateFrame("Button", nil, f, "GameMenuButtonTemplate")
+    end
+    historyBtn:SetSize(90, 22)
+    historyBtn:SetPoint("TOPRIGHT", -10, -12)
+
+    local historyBtnTextFS
+    if options.applyStyle then
+        options.applyStyle(f, "closebutton", historyBtn)
+        historyBtnTextFS = historyBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        historyBtnTextFS:SetPoint("CENTER")
+        historyBtnTextFS:SetText(L["HIST_BTN"])
+    else
+        historyBtn:SetText(L["HIST_BTN"])
+    end
+
+    local function SetHistoryBtnText(text)
+        if historyBtnTextFS then
+            historyBtnTextFS:SetText(text)
+        else
+            historyBtn:SetText(text)
+        end
+    end
+
+    local sectionX = 20
+    local hy = -50
+
+    f.histPlayerLine = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.histPlayerLine:SetPoint("TOPLEFT", sectionX, hy)
+    f.histPlayerLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histPlayerLine:SetJustifyH("LEFT")
+    if f.histPlayerLine.SetWordWrap then f.histPlayerLine:SetWordWrap(false) end
+    hy = hy - 18
+
+    f.histAddedLine = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.histAddedLine:SetPoint("TOPLEFT", sectionX, hy)
+    f.histAddedLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histAddedLine:SetJustifyH("LEFT")
+    if f.histAddedLine.SetWordWrap then f.histAddedLine:SetWordWrap(false) end
+    hy = hy - 16
+
+    f.histAddedByLine = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.histAddedByLine:SetPoint("TOPLEFT", sectionX, hy)
+    f.histAddedByLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histAddedByLine:SetJustifyH("LEFT")
+    if f.histAddedByLine.SetWordWrap then f.histAddedByLine:SetWordWrap(false) end
+    hy = hy - 18
+
+    f.histDataHeader = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.histDataHeader:SetPoint("TOPLEFT", sectionX, hy)
+    f.histDataHeader:SetText(L["HIST_ADDED_DATA"])
+    hy = hy - 15
+
+    f.histDataValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.histDataValue:SetPoint("TOPLEFT", sectionX + 5, hy)
+    f.histDataValue:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histDataValue:SetJustifyH("LEFT")
+    f.histDataValue:SetJustifyV("TOP")
+    f.histDataValue:SetSpacing(2)
+    hy = hy - 32
+
+    f.histLastSeenLine = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.histLastSeenLine:SetPoint("TOPLEFT", sectionX, hy)
+    f.histLastSeenLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histLastSeenLine:SetJustifyH("LEFT")
+    if f.histLastSeenLine.SetWordWrap then f.histLastSeenLine:SetWordWrap(false) end
+    hy = hy - 18
+
+    f.histDivider = f:CreateTexture(nil, "ARTWORK")
+    f.histDivider:SetHeight(1)
+    f.histDivider:SetPoint("TOPLEFT", sectionX, hy)
+    f.histDivider:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histDivider:SetTexture(1, 1, 1, 0.2)
+    hy = hy - 10
+
+    f.histUpdatesSectionLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.histUpdatesSectionLabel:SetPoint("TOPLEFT", sectionX, hy)
+    f.histUpdatesSectionLabel:SetText(L["HIST_UPDATES_SECTION"])
+    f.histUpdatesSectionLabel:SetTextColor(1, 0.82, 0)
+    hy = hy - 16
+
+    f.histLastUpdateValue = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.histLastUpdateValue:SetPoint("TOPLEFT", sectionX, hy)
+    f.histLastUpdateValue:SetPoint("RIGHT", f, "RIGHT", -20, 0)
+    f.histLastUpdateValue:SetJustifyH("LEFT")
+    f.histLastUpdateValue:SetTextColor(0.6, 1, 0.6)
+    hy = hy - 32
+
+    local histScrollFrame = CreateFrame("ScrollFrame", nil, f)
+    histScrollFrame:SetPoint("TOPLEFT", sectionX, hy)
+    histScrollFrame:SetPoint("BOTTOMRIGHT", -34, 40)
+
+    local histContent = CreateFrame("Frame", nil, histScrollFrame)
+    histContent:SetSize(1, 1)
+    histScrollFrame:SetScrollChild(histContent)
+
+    local histScrollbar = CreateFrame("Slider", nil, f)
+    histScrollbar:SetPoint("TOPLEFT", histScrollFrame, "TOPRIGHT", 4, 0)
+    histScrollbar:SetPoint("BOTTOMLEFT", histScrollFrame, "BOTTOMRIGHT", 4, 0)
+    histScrollbar:SetWidth(16)
+    histScrollbar:SetOrientation("VERTICAL")
+    histScrollbar:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+    histScrollbar:SetBackdrop({
+        bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
+        edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
+        tile = true, tileSize = 8, edgeSize = 8,
+        insets = { left = 3, right = 3, top = 6, bottom = 6 }
+    })
+    histScrollbar:SetMinMaxValues(0, 100)
+    histScrollbar:SetValueStep(1)
+    histScrollbar:SetValue(0)
+    histScrollbar:SetScript("OnValueChanged", function(self, value)
+        histScrollFrame:SetVerticalScroll(value)
+    end)
+
+    histScrollFrame:EnableMouseWheel(true)
+    histScrollFrame:SetScript("OnMouseWheel", function(self, delta)
+        local current = histScrollbar:GetValue()
+        local minV, maxV = histScrollbar:GetMinMaxValues()
+        local newV = math.max(minV, math.min(maxV, current - delta * (HISTORY_ROW_HEIGHT * 3)))
+        histScrollbar:SetValue(newV)
+    end)
+
+    f.histScrollFrame = histScrollFrame
+    f.histContent = histContent
+    f.histScrollbar = histScrollbar
+
+    f.histRows = {}
+    for i = 1, HISTORY_MAX_VISIBLE_ROWS do
+        local row = histContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row:SetPoint("TOPLEFT", 0, 0)
+        row:SetPoint("RIGHT", histContent, "RIGHT", 0, 0)
+        row:SetJustifyH("LEFT")
+        row:SetJustifyV("TOP")
+        if row.SetWordWrap then row:SetWordWrap(true) end
+        row:Hide()
+        f.histRows[i] = row
+    end
+
+    f.histNoUpdatesText = histContent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.histNoUpdatesText:SetPoint("TOPLEFT", 0, 0)
+    f.histNoUpdatesText:SetText(L["HIST_NO_UPDATES"])
+    f.histNoUpdatesText:SetTextColor(0.6, 0.6, 0.6)
+    f.histNoUpdatesText:Hide()
+
+    f.histNoDataText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.histNoDataText:SetPoint("CENTER", 0, -20)
+    f.histNoDataText:SetTextColor(1, 0.5, 0.5)
+    f.histNoDataText:SetText(L["HIST_NO_DATA"])
+    f.histNoDataText:Hide()
+
+    f.historyElements = {
+        f.histPlayerLine, f.histAddedLine, f.histAddedByLine,
+        f.histDataHeader, f.histDataValue, f.histLastSeenLine,
+        f.histDivider, f.histUpdatesSectionLabel, f.histLastUpdateValue,
+        f.histScrollFrame, f.histScrollbar,
+    }
+
+    f.viewMode = "info"
+
+    f.SetViewMode = function(mode)
+        f.viewMode = mode
+        local showInfo = (mode ~= "history")
+
+        for _, el in ipairs(f.infoElements) do
+            if el then
+                if showInfo then el:Show() else el:Hide() end
+            end
+        end
+        for _, el in ipairs(f.historyElements) do
+            if el then
+                if showInfo then el:Hide() else el:Show() end
+            end
+        end
+
+        if showInfo then
+            f.histNoDataText:Hide()
+            SetHistoryBtnText(L["HIST_BTN"])
+        else
+            SetHistoryBtnText(L["HIST_BACK_BTN"])
+        end
+    end
+
+    historyBtn:SetScript("OnClick", function()
+        if f.viewMode == "history" then
+            f.SetViewMode("info")
+        else
+            -- Для строк "Кто здесь?" f.currentPlayerData - это синтетический
+            -- объединённый объект (не прямая ссылка на запись в списке), и
+            -- реальные данные (addedDate/history/...) лежат в .listData.
+            local histData = f.currentPlayerData
+            if histData and histData.listData then
+                histData = histData.listData
+            end
+            Common.PopulateHistoryWindow(f, histData, L)
+            f.SetViewMode("history")
+        end
+    end)
+
+    f.historyBtn = historyBtn
+
+    f.SetViewMode("info")
+
     f:Hide()
     return f
+end
+
+function Common.PopulateHistoryWindow(f, data, L)
+    if not f then return end
+
+    if not data or not data.addedDate then
+        f.histNoDataText:SetText(L["HIST_NO_DATA"])
+        f.histNoDataText:Show()
+
+        f.histPlayerLine:Hide()
+        f.histAddedLine:Hide()
+        f.histAddedByLine:Hide()
+        f.histDataHeader:Hide(); f.histDataValue:Hide()
+        f.histLastSeenLine:Hide()
+        f.histDivider:Hide()
+        f.histUpdatesSectionLabel:Hide()
+        f.histLastUpdateValue:Hide()
+        f.histScrollFrame:Hide()
+        f.histScrollbar:Hide()
+
+        for i = 1, #f.histRows do
+            f.histRows[i]:Hide()
+        end
+        f.histNoUpdatesText:Hide()
+
+        return
+    end
+
+    f.histNoDataText:Hide()
+    f.histPlayerLine:Show()
+    f.histAddedLine:Show()
+    f.histAddedByLine:Show()
+    f.histDataHeader:Show(); f.histDataValue:Show()
+    f.histLastSeenLine:Show()
+    f.histDivider:Show()
+    f.histUpdatesSectionLabel:Show()
+    f.histLastUpdateValue:Show()
+    f.histScrollFrame:Show()
+
+    local unknown = L["HIST_UNKNOWN"]
+
+    f.histPlayerLine:SetText((L["HIST_PLAYER"] or "") .. " " .. (data.name or "?"))
+    f.histAddedLine:SetText(L["HIST_ADDED_DATE"] .. " " .. (data.addedDate or unknown) .. "   " .. L["HIST_ADDED_REALM"] .. " " .. (data.addedRealm or unknown))
+    f.histAddedByLine:SetText(L["HIST_ADDED_BY"] .. " " .. (data.addedBy or unknown))
+
+    local snap = data.addedSnapshot
+    local dataLines
+    if snap then
+        dataLines = string.format(
+            "%s %s   %s %s   %s %s\n%s %s   %s %s",
+            L["HIST_CLASS"], snap.class or unknown,
+            L["HIST_RACE"], snap.race or unknown,
+            L["HIST_LEVEL"], tostring(snap.level or unknown),
+            L["HIST_GUILD"], snap.guild or unknown,
+            L["HIST_FACTION"], snap.faction or unknown
+        )
+    else
+        dataLines = unknown
+    end
+    f.histDataValue:SetText(dataLines)
+
+    f.histLastSeenLine:SetText(L["HIST_LAST_SEEN"] .. " " .. (data.lastSeenDate or unknown))
+
+    if data.lastUpdateDate then
+        f.histLastUpdateValue:SetText(
+            L["HIST_LAST_UPDATE"] .. " " .. data.lastUpdateDate ..
+            " (" .. (L["HIST_BY"] or "") .. " " .. (data.lastUpdateBy or unknown) .. ")\n" ..
+            (data.lastUpdateChange or "")
+        )
+    else
+        f.histLastUpdateValue:SetText(L["HIST_NO_UPDATES"])
+    end
+
+    local history = data.history
+    local count = history and #history or 0
+
+    if count == 0 then
+        for i = 1, #f.histRows do
+            f.histRows[i]:Hide()
+        end
+        f.histNoUpdatesText:Show()
+        f.histScrollbar:Hide()
+        f.histContent:SetHeight(20)
+        f.histScrollbar:SetMinMaxValues(0, 0)
+        f.histScrollbar:SetValue(0)
+    else
+        f.histNoUpdatesText:Hide()
+        local visible = math.min(count, HISTORY_MAX_VISIBLE_ROWS)
+        local ROW_GAP = 4
+        local cumulativeY = 0
+
+        local contentWidth = f.histScrollFrame:GetWidth() or 0
+        if contentWidth > 0 then
+            f.histContent:SetWidth(contentWidth)
+        end
+
+        for i = 1, visible do
+            local entry = history[i]
+            local row = f.histRows[i]
+            row:SetText("|cFFAAAAAA" .. (entry.date or "") .. "|r  " .. (entry.change or ""))
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", 0, -cumulativeY)
+            row:SetPoint("RIGHT", f.histContent, "RIGHT", 0, 0)
+            row:Show()
+            local rowHeight = row:GetStringHeight() or HISTORY_ROW_HEIGHT
+            if rowHeight < HISTORY_ROW_HEIGHT then rowHeight = HISTORY_ROW_HEIGHT end
+            cumulativeY = cumulativeY + rowHeight + ROW_GAP
+        end
+        for i = visible + 1, #f.histRows do
+            f.histRows[i]:Hide()
+        end
+
+        f.histContent:SetHeight(math.max(1, cumulativeY))
+
+        local frameHeight = f.histScrollFrame:GetHeight() or 0
+        local maxScroll = math.max(0, cumulativeY - frameHeight)
+        if maxScroll > 0 then
+            f.histScrollbar:Show()
+            f.histScrollbar:SetMinMaxValues(0, maxScroll)
+        else
+            f.histScrollbar:Hide()
+            f.histScrollbar:SetMinMaxValues(0, 0)
+        end
+        f.histScrollbar:SetValue(0)
+        f.histScrollFrame:SetVerticalScroll(0)
+    end
 end
 
 function Common.GetPooledFrame(parent, framePool, UICommon)
