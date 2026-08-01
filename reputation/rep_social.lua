@@ -842,7 +842,11 @@ function SocialUI:CreateUnifiedSettingsPanel(parent)
 
     AddHeader("SET_SECTION_ONLINE")
     AddCheck("SET_ENABLED", function() return ReputationListDB.onlineToast and ReputationListDB.onlineToast.enabled end,
-        function(v) ReputationListDB.onlineToast = ReputationListDB.onlineToast or {}; ReputationListDB.onlineToast.enabled = v end)
+        function(v)
+            ReputationListDB.onlineToast = ReputationListDB.onlineToast or {}
+            ReputationListDB.onlineToast.enabled = v
+            if RL.OnlineToast and RL.OnlineToast.SetEnabled then RL.OnlineToast:SetEnabled(v) end
+        end)
     AddCheck("SET_SOUND", function() return ReputationListDB.onlineToast and ReputationListDB.onlineToast.sound end,
         function(v) ReputationListDB.onlineToast = ReputationListDB.onlineToast or {}; ReputationListDB.onlineToast.sound = v end)
     AddCheck("SET_WATCH_BLACKLIST", function() return ReputationListDB.onlineToast and ReputationListDB.onlineToast.watchBlacklist end,
@@ -855,6 +859,15 @@ function SocialUI:CreateUnifiedSettingsPanel(parent)
     AddCheck("SET_ENABLED", function() return ReputationListDB.wordFilter and ReputationListDB.wordFilter.enabled end,
         function(v) ReputationListDB.wordFilter = ReputationListDB.wordFilter or {}; ReputationListDB.wordFilter.enabled = v end)
     AddHint("SET_CHAT_FILTER_HINT")
+
+    AddHeader("SET_SECTION_SYNC")
+    AddCheck("SET_DISABLE_SYNC", function() return ReputationListDB.sync and ReputationListDB.sync.disabled end,
+        function(v)
+            ReputationListDB.sync = ReputationListDB.sync or {}
+            ReputationListDB.sync.disabled = v
+            if RL.Sync and RL.Sync.SetDisabled then RL.Sync:SetDisabled(v) end
+        end)
+    AddHint("SET_DISABLE_SYNC_HINT")
 
     AddHeader("SET_SECTION_TRANSFER")
     local transfer = CreateFrame("Button", nil, body, "UIPanelButtonTemplate")

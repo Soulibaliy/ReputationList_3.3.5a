@@ -2051,6 +2051,9 @@ local function CreateProposedPage(f)
             table.remove(RL.Sync.pendingQueue, STATE.proposedIndex)
         end
         UI2:RefreshProposedPage()
+        UI2:Refresh()
+        sync = nil
+        collectgarbage("collect")
     end)
 
     local skipBtn = CreateButton(p, 100, 22, L["V2_SKIP"])
@@ -2522,6 +2525,7 @@ local function CreateSettingsPage(f)
         function(v)
             ReputationListDB.onlineToast = ReputationListDB.onlineToast or {}
             ReputationListDB.onlineToast.enabled = v
+            if RL.OnlineToast and RL.OnlineToast.SetEnabled then RL.OnlineToast:SetEnabled(v) end
         end)
     AddCheckbox(L["SET_SOUND"], "toastSound",
         function() return ReputationListDB.onlineToast and ReputationListDB.onlineToast.sound end,
@@ -2551,6 +2555,16 @@ local function CreateSettingsPage(f)
             ReputationListDB.wordFilter.enabled = v
         end)
     AddHint(L["SET_CHAT_FILTER_HINT"])
+
+    AddHeader(L["SET_SECTION_SYNC"])
+    AddCheckbox(L["SET_DISABLE_SYNC"], "syncDisabled",
+        function() return ReputationListDB.sync and ReputationListDB.sync.disabled end,
+        function(v)
+            ReputationListDB.sync = ReputationListDB.sync or {}
+            ReputationListDB.sync.disabled = v
+            if RL.Sync and RL.Sync.SetDisabled then RL.Sync:SetDisabled(v) end
+        end)
+    AddHint(L["SET_DISABLE_SYNC_HINT"])
 
     AddHeader(L["SET_SECTION_TRANSFER"])
     y = y - 24

@@ -28,19 +28,18 @@ end
 
 local CUSTOM_ICON_PATH = "Interface\\AddOns\\reputation\\textures\\"
 local CUSTOM_ICONS = {
-    blacklist = CUSTOM_ICON_PATH .. "skull_icon:14:14",
-    whitelist = CUSTOM_ICON_PATH .. "hands_icon:14:14",
-    notelist  = CUSTOM_ICON_PATH .. "notelist_icon:14:14",
+    blacklist = CUSTOM_ICON_PATH .. "skull_icon.tga",
+    whitelist = CUSTOM_ICON_PATH .. "hands_icon.tga",
+    notelist  = CUSTOM_ICON_PATH .. "notelist_icon.tga",
 }
 local FALLBACK_ICONS = {
-    blacklist = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8:14:14",
-    whitelist = "Interface\\FriendsFrame\\StatusIcon-Online:14:14",
-    notelist  = "Interface\\Common\\Indicator-Yellow:14:14",
+    blacklist = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8",
+    whitelist = "Interface\\FriendsFrame\\StatusIcon-Online",
+    notelist  = "Interface\\Common\\Indicator-Yellow",
 }
 
-local function GetIconEscape(listType)
-    local tex = CFG.useCustomIcons and CUSTOM_ICONS[listType] or FALLBACK_ICONS[listType]
-    return "|T" .. tex .. "|t "
+local function GetIconTexture(listType)
+    return CFG.useCustomIcons and CUSTOM_ICONS[listType] or FALLBACK_ICONS[listType]
 end
 
 local cachedRealmData = nil
@@ -139,13 +138,24 @@ end
 
 local function ApplyIcon(fontString)
     local rawText = StripIcon(fontString:GetText())
+    if fontString:GetText() ~= rawText then fontString:SetText(rawText) end
     local listType = GetListTypeForName(rawText)
-    if not listType then return end
-
-    local newText = GetIconEscape(listType) .. rawText
-    if fontString:GetText() ~= newText then
-        fontString:SetText(newText)
+    local icon = fontString.__ReputationListIcon
+    if not listType then
+        if icon then icon:Hide() end
+        return
     end
+
+    if not icon then
+        local parent = fontString:GetParent()
+        if not parent or not parent.CreateTexture then return end
+        icon = parent:CreateTexture(nil, "OVERLAY")
+        icon:SetSize(14, 14)
+        icon:SetPoint("RIGHT", fontString, "LEFT", -2, 0)
+        fontString.__ReputationListIcon = icon
+    end
+    icon:SetTexture(GetIconTexture(listType))
+    icon:Show()
 end
 
 local ElvNP = nil
@@ -168,13 +178,10 @@ local function InstallElvHook()
         if not CFG.enabled then return end
         if not frame or not frame.Name or not frame.UnitName or frame.UnitName == "" then return end
         local listType = GetListTypeForName(frame.UnitName)
-        if not listType then return end
         local current = frame.Name:GetText() or ""
         local stripped = StripIcon(current)
-        local newText = GetIconEscape(listType) .. stripped
-        if current ~= newText then
-            frame.Name:SetText(newText)
-        end
+        if current ~= stripped then frame.Name:SetText(stripped) end
+        ApplyIcon(frame.Name)
     end)
     SCANNING_DISABLED_DUE_TO_ELVUI = true
 end
@@ -237,7 +244,7 @@ function NP:ScanPlates()
             local fs = FindNameFontString(frame)
             if fs then
                 found = found + 1
-                if CFG.enabled and GetListTypeForName(StripIcon(fs:GetText())) then
+                if CFG.enabled then
                     ApplyIcon(fs)
                     newTracked[#newTracked + 1] = fs
                 end
@@ -290,6 +297,14 @@ function NP:Toggle(state)
     end
 
     if not CFG.enabled then
+        for i = 1, #trackedList do
+            local fs = trackedList[i]
+            if fs and fs.__ReputationListIcon then fs.__ReputationListIcon:Hide() end
+            if fs and fs.GetText then
+                local stripped = StripIcon(fs:GetText())
+                if fs:GetText() ~= stripped then fs:SetText(stripped) end
+            end
+        end
         trackedList = {}
     end
 

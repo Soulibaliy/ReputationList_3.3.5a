@@ -12,12 +12,30 @@ local SYNC = RL.Sync
 local PREFIX = "RepListSync"
 local CHUNK_SIZE = 200
 local TRANSFER_TIMEOUT = 45
+local MAX_TRANSFER_BYTES = 512 * 1024
+local MAX_TRANSFER_PARTS = math.ceil(MAX_TRANSFER_BYTES / CHUNK_SIZE)
+local MAX_TRANSFER_ENTRIES = 100
+local MAX_ACTIVE_TRANSFERS = 3
+local MAX_ACTIVE_PER_SENDER = 1
+local MAX_PENDING_TRANSFERS = 5
+local MAX_PENDING_PER_SENDER = 2
+local RATE_WINDOW = 10
+local MAX_CHUNKS_PER_WINDOW = 3000
+local MAX_VIOLATIONS = 3
+local BLOCK_DURATION = 60
+local PENDING_TIMEOUT = BLOCK_DURATION
+local MAX_TRANSFER_ID_LENGTH = 32
+local AUTO_ACCEPT_COOLDOWN = 5 * 60
 
 local function EnsureDefaults()
     ReputationListDB = ReputationListDB or {}
     ReputationListDB.sync = ReputationListDB.sync or {
         autoAccept = false,
+        disabled = false,
     }
+    if ReputationListDB.sync.disabled == nil then
+        ReputationListDB.sync.disabled = false
+    end
     return ReputationListDB.sync
 end
 
@@ -40,9 +58,18 @@ local function GenerateTransferId()
 end
 
 local function SendBase64Payload(targetName, base64Str, extraInfo)
+    if CFG.disabled then
+        return false, L["SYNC_DISABLED"] or "Synchronization is disabled in settings"
+    end
+    if #base64Str > MAX_TRANSFER_BYTES then
+        return false, L["SYNC_ERR_TOO_LARGE"] or "Synchronization package is too large"
+    end
     local transferId = GenerateTransferId()
     local totalParts = math.ceil(#base64Str / CHUNK_SIZE)
     if totalParts == 0 then totalParts = 1 end
+    if totalParts > MAX_TRANSFER_PARTS then
+        return false, L["SYNC_ERR_TOO_LARGE"] or "Synchronization package is too large"
+    end
 
     for partIndex = 1, totalParts do
         local startPos = (partIndex - 1) * CHUNK_SIZE + 1
@@ -62,9 +89,23 @@ local function SendBase64Payload(targetName, base64Str, extraInfo)
 end
 
 function SYNC:SendListTo(targetName, listTypes)
+    if CFG.disabled then
+        return false, L["SYNC_DISABLED"] or "Synchronization is disabled in settings"
+    end
     targetName = RL.NormalizeName and RL.NormalizeName(targetName) or targetName
     if not targetName or targetName == "" then
         return false, "Не указано имя игрока"
+    end
+
+    local realmData = RL:GetRealmData()
+    local entryCount = 0
+    for _, listType in ipairs(listTypes or { "blacklist", "whitelist", "notelist" }) do
+        for _ in pairs((realmData and realmData[listType]) or {}) do
+            entryCount = entryCount + 1
+            if entryCount > MAX_TRANSFER_ENTRIES then
+                return false, string.format(L["SYNC_ERR_TOO_MANY"] or "A synchronization package may contain no more than %d players", MAX_TRANSFER_ENTRIES)
+            end
+        end
     end
 
     local base64Str = RL.Transfer:Export(listTypes)
@@ -76,6 +117,9 @@ function SYNC:SendListTo(targetName, listTypes)
 end
 
 function SYNC:SendEntryTo(targetName, listType, key)
+    if CFG.disabled then
+        return false, L["SYNC_DISABLED"] or "Synchronization is disabled in settings"
+    end
     targetName = RL.NormalizeName and RL.NormalizeName(targetName) or targetName
     if not targetName or targetName == "" then
         return false, "Не указано имя игрока"
@@ -93,7 +137,146 @@ function SYNC:SendEntryTo(targetName, listType, key)
 end
 
 local incomingBuffers = {}
+local senderSecurity = {}
 SYNC.pendingQueue = SYNC.pendingQueue or {}
+
+function SYNC:SetDisabled(disabled)
+    CFG.disabled = disabled and true or false
+    if not CFG.disabled then return end
+
+    for key in pairs(incomingBuffers) do incomingBuffers[key] = nil end
+    for key in pairs(outgoingTransfers) do outgoingTransfers[key] = nil end
+    for i = #self.pendingQueue, 1, -1 do table.remove(self.pendingQueue, i) end
+end
+
+function SYNC:IsDisabled()
+    return CFG.disabled and true or false
+end
+
+local function SenderKey(name)
+    local normalized = RL.NormalizeName and RL.NormalizeName(name) or name
+    return string.lower(tostring(normalized or ""))
+end
+
+local function IsSyncSenderBlocked(sender)
+    if RL.IsInBlizzardIgnore and RL.IsInBlizzardIgnore(sender) then
+        return true
+    end
+
+    if ReputationListDB and ReputationListDB.filterMessages then
+        local realmData = RL:GetRealmData()
+        local blacklist = realmData and realmData.blacklist
+        if blacklist and blacklist[SenderKey(sender)] then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function ClearIncomingBuffersFrom(sender)
+    local wanted = SenderKey(sender)
+    for bufKey, buf in pairs(incomingBuffers) do
+        if SenderKey(buf.sender) == wanted then
+            incomingBuffers[bufKey] = nil
+        end
+    end
+end
+
+local function IsTrustedSender(sender)
+    local wanted = SenderKey(sender)
+    if wanted == "" then return false end
+    if wanted == SenderKey(UnitName("player")) then return true end
+
+    for i = 1, (GetNumRaidMembers and GetNumRaidMembers() or 0) do
+        local name = GetRaidRosterInfo(i)
+        if SenderKey(name) == wanted then return true end
+    end
+    for i = 1, (GetNumPartyMembers and GetNumPartyMembers() or 0) do
+        if SenderKey(UnitName("party" .. i)) == wanted then return true end
+    end
+    for i = 1, (GetNumFriends and GetNumFriends() or 0) do
+        local name = GetFriendInfo(i)
+        if SenderKey(name) == wanted then return true end
+    end
+    for i = 1, (GetNumGuildMembers and GetNumGuildMembers() or 0) do
+        local name = GetGuildRosterInfo(i)
+        if SenderKey(name) == wanted then return true end
+    end
+    return false
+end
+
+local function RegisterViolation(sender)
+    local key = SenderKey(sender)
+    local now = GetTime()
+    local state = senderSecurity[key]
+    if not state then
+        state = { windowStarted = now, chunks = 0, violations = 0, blockedUntil = 0 }
+        senderSecurity[key] = state
+    end
+    state.violations = state.violations + 1
+    if state.violations >= MAX_VIOLATIONS then
+        state.blockedUntil = now + BLOCK_DURATION
+        state.violations = 0
+        print(string.format(L["SYNC_SENDER_BLOCKED"] or "|cFFFF5555[ReputationList]|r Synchronization from %s was temporarily blocked.", tostring(sender)))
+    end
+end
+
+local function AllowChunk(sender)
+    local key = SenderKey(sender)
+    local now = GetTime()
+    local state = senderSecurity[key]
+    if not state then
+        state = { windowStarted = now, chunks = 0, violations = 0, blockedUntil = 0 }
+        senderSecurity[key] = state
+    end
+    if state.blockedUntil > now then return false end
+    if now - state.windowStarted >= RATE_WINDOW then
+        state.windowStarted, state.chunks = now, 0
+    end
+    state.chunks = state.chunks + 1
+    if state.chunks > MAX_CHUNKS_PER_WINDOW then
+        RegisterViolation(sender)
+        return false
+    end
+    return true
+end
+
+local function CountActiveBuffers(sender)
+    local total, bySender = 0, 0
+    local wanted = SenderKey(sender)
+    for _, buf in pairs(incomingBuffers) do
+        total = total + 1
+        if SenderKey(buf.sender) == wanted then bySender = bySender + 1 end
+    end
+    return total, bySender
+end
+
+local function CountPendingFrom(sender)
+    local count = 0
+    local wanted = SenderKey(sender)
+    for _, item in ipairs(SYNC.pendingQueue) do
+        if SenderKey(item.from) == wanted then count = count + 1 end
+    end
+    return count
+end
+
+local function CanAutoAccept(sender)
+    local key = SenderKey(sender)
+    local state = senderSecurity[key]
+    local now = GetTime()
+    return not state or not state.lastAutoAccepted or now - state.lastAutoAccepted >= AUTO_ACCEPT_COOLDOWN
+end
+
+local function MarkAutoAccepted(sender)
+    local key = SenderKey(sender)
+    local state = senderSecurity[key]
+    if not state then
+        state = { windowStarted = GetTime(), chunks = 0, violations = 0, blockedUntil = 0 }
+        senderSecurity[key] = state
+    end
+    state.lastAutoAccepted = GetTime()
+end
 
 local function CountPayloadEntries(payload)
     local counts = { blacklist = 0, whitelist = 0, notelist = 0, total = 0 }
@@ -110,23 +293,114 @@ local function CountPayloadEntries(payload)
     return counts
 end
 
+local function CopyBoundedString(value, maxLength)
+    if value == nil then return nil end
+    if type(value) ~= "string" then return nil end
+    if #value > maxLength then return nil end
+    return value
+end
+
+local function SanitizeTags(tags)
+    if tags == nil then return nil end
+    if type(tags) == "string" then return CopyBoundedString(tags, 500) end
+    if type(tags) ~= "table" then return nil end
+    local clean, count = {}, 0
+    for key, value in pairs(tags) do
+        count = count + 1
+        if count > 20 then return nil end
+        if type(key) == "number" and type(value) == "string" and #value <= 50 then
+            clean[#clean + 1] = value
+        elseif type(key) == "string" and #key <= 50 and (type(value) == "boolean" or type(value) == "string") then
+            clean[key] = type(value) == "string" and value:sub(1, 50) or value
+        else
+            return nil
+        end
+    end
+    return clean
+end
+
+local function ValidateAndSanitizePayload(payload)
+    if type(payload) ~= "table" or type(payload.lists) ~= "table" then return nil, 0 end
+    local clean = {
+        exportVersion = payload.exportVersion,
+        exportedBy = CopyBoundedString(payload.exportedBy, 80),
+        exportedRealm = CopyBoundedString(payload.exportedRealm, 80),
+        exportedDate = CopyBoundedString(payload.exportedDate, 32),
+        lists = {},
+    }
+    local total = 0
+    for _, listType in ipairs({ "blacklist", "whitelist", "notelist" }) do
+        local entries = payload.lists[listType]
+        if entries ~= nil then
+            if type(entries) ~= "table" then return nil, total end
+            local cleanList = {}
+            clean.lists[listType] = cleanList
+            for key, entry in pairs(entries) do
+                total = total + 1
+                if total > MAX_TRANSFER_ENTRIES then return nil, total end
+                if type(key) ~= "string" or #key == 0 or #key > 80 or type(entry) ~= "table" then return nil, total end
+                local name = CopyBoundedString(entry.name, 80)
+                if not name or name == "" then return nil, total end
+                local level = entry.level
+                if type(level) == "number" then
+                    if level < 0 or level > 255 then level = nil end
+                elseif type(level) == "string" then
+                    level = CopyBoundedString(level, 4)
+                else
+                    level = nil
+                end
+                cleanList[key] = {
+                    name = name,
+                    note = CopyBoundedString(entry.note, 1000),
+                    guid = CopyBoundedString(entry.guid, 128),
+                    class = CopyBoundedString(entry.class, 40),
+                    race = CopyBoundedString(entry.race, 40),
+                    level = level,
+                    guild = CopyBoundedString(entry.guild, 120),
+                    faction = CopyBoundedString(entry.faction, 20),
+                    tags = SanitizeTags(entry.tags),
+                    addedDate = CopyBoundedString(entry.addedDate, 32),
+                    addedBy = CopyBoundedString(entry.addedBy, 80),
+                }
+            end
+        end
+    end
+    return clean, total
+end
+
 local function HandleCompletedTransfer(sender, fullText)
+    if #fullText > MAX_TRANSFER_BYTES then
+        RegisterViolation(sender)
+        return false
+    end
     local payload, err = RL.Transfer:DecodePayload(fullText)
     if not payload then
-        print("|cFFFF0000[ReputationList]|r Ошибка синхронизации от " .. sender .. ": " .. tostring(err))
-        return
+        RegisterViolation(sender)
+        return false
     end
 
+    local cleanPayload, entryCount = ValidateAndSanitizePayload(payload)
+    if not cleanPayload or entryCount > MAX_TRANSFER_ENTRIES then
+        RegisterViolation(sender)
+        return false
+    end
+    payload = cleanPayload
     local counts = CountPayloadEntries(payload)
 
-    if CFG.autoAccept then
+    if CFG.autoAccept and IsTrustedSender(sender) and CanAutoAccept(sender) then
         local ok, stats = RL.Transfer:ImportPayload(payload, "newest")
         if ok then
+            MarkAutoAccepted(sender)
             print(string.format(
                 "|cFF00FF00[ReputationList]|r Автоматически синхронизировано от %s: добавлено %d, обновлено %d, пропущено %d.",
                 sender, stats.added, stats.overwritten, stats.skipped))
         end
+        return ok and true or false
     else
+        if #SYNC.pendingQueue >= MAX_PENDING_TRANSFERS or CountPendingFrom(sender) >= MAX_PENDING_PER_SENDER then
+            RegisterViolation(sender)
+            return false
+        end
         table.insert(SYNC.pendingQueue, {
             from = sender,
             payload = payload,
@@ -136,6 +410,7 @@ local function HandleCompletedTransfer(sender, fullText)
         print(string.format(
             "|cFF00FF00[ReputationList]|r Получены данные синхронизации от %s (%d записей) - автоприём выключен, откройте \"Входящие синхронизации\" в окне Модули, чтобы просмотреть.",
             sender, counts.total))
+        return true
     end
 end
 
@@ -143,40 +418,82 @@ local msgFrame = CreateFrame("Frame")
 msgFrame:RegisterEvent("CHAT_MSG_ADDON")
 msgFrame:SetScript("OnEvent", function(self, event, prefix, message, channel, sender)
     if prefix ~= PREFIX then return end
+    if CFG.disabled then return end
     if not message or message == "" then return end
 
     local senderClean = RL.NormalizeName and RL.NormalizeName(sender) or sender
+    if IsSyncSenderBlocked(senderClean) then
+        ClearIncomingBuffersFrom(senderClean)
+        return
+    end
 
     local kind = message:sub(1, 1)
 
     if kind == "D" then
+        if not AllowChunk(senderClean) then return end
         local transferId, partIndex, totalParts, chunk = message:match("^D~([^~]+)~(%d+)~(%d+)~(.*)$")
-        if not transferId then return end
+        if not transferId then RegisterViolation(senderClean); return end
         partIndex = tonumber(partIndex)
         totalParts = tonumber(totalParts)
+        chunk = chunk or ""
+
+        if #transferId == 0 or #transferId > MAX_TRANSFER_ID_LENGTH or not transferId:match("^[A-Za-z0-9_-]+$")
+            or not partIndex or not totalParts or totalParts < 1 or totalParts > MAX_TRANSFER_PARTS
+            or partIndex < 1 or partIndex > totalParts or #chunk > CHUNK_SIZE
+            or not chunk:match("^[A-Za-z0-9+/=:]*$") then
+            RegisterViolation(senderClean)
+            return
+        end
 
         local bufKey = senderClean .. "|" .. transferId
         local buf = incomingBuffers[bufKey]
         if not buf then
-            buf = { parts = {}, total = totalParts, sender = senderClean, startedAt = GetTime() }
+            local activeTotal, activeForSender = CountActiveBuffers(senderClean)
+            if activeTotal >= MAX_ACTIVE_TRANSFERS or activeForSender >= MAX_ACTIVE_PER_SENDER then
+                RegisterViolation(senderClean)
+                return
+            end
+            buf = { parts = {}, total = totalParts, sender = senderClean, startedAt = GetTime(), received = 0, bytes = 0 }
             incomingBuffers[bufKey] = buf
+        elseif buf.total ~= totalParts then
+            incomingBuffers[bufKey] = nil
+            RegisterViolation(senderClean)
+            return
         end
-        buf.parts[partIndex] = chunk or ""
 
-        local receivedCount = 0
-        for _ in pairs(buf.parts) do receivedCount = receivedCount + 1 end
+        local existing = buf.parts[partIndex]
+        if existing then
+            if existing ~= chunk then
+                incomingBuffers[bufKey] = nil
+                RegisterViolation(senderClean)
+            end
+            return
+        end
+        if buf.bytes + #chunk > MAX_TRANSFER_BYTES then
+            incomingBuffers[bufKey] = nil
+            RegisterViolation(senderClean)
+            return
+        end
+        buf.parts[partIndex] = chunk
+        buf.received = buf.received + 1
+        buf.bytes = buf.bytes + #chunk
 
-        if receivedCount >= buf.total then
+        if buf.received == buf.total then
             local fullParts = {}
             for i = 1, buf.total do
-                fullParts[i] = buf.parts[i] or ""
+                if not buf.parts[i] then
+                    incomingBuffers[bufKey] = nil
+                    RegisterViolation(senderClean)
+                    return
+                end
+                fullParts[i] = buf.parts[i]
             end
             local fullText = table.concat(fullParts)
             incomingBuffers[bufKey] = nil
 
-            HandleCompletedTransfer(senderClean, fullText)
-
-            SendAddonMessage(PREFIX, "A~" .. transferId .. "~received~" .. tostring(receivedCount), "WHISPER", sender)
+            if HandleCompletedTransfer(senderClean, fullText) then
+                SendAddonMessage(PREFIX, "A~" .. transferId .. "~received~" .. tostring(buf.received), "WHISPER", sender)
+            end
         end
     elseif kind == "A" then
         local transferId, status = message:match("^A~([^~]+)~([^~]+)~")
@@ -198,6 +515,19 @@ if RL.TimerManager then
         for transferId, tr in pairs(outgoingTransfers) do
             if now - tr.sentAt > TRANSFER_TIMEOUT then
                 outgoingTransfers[transferId] = nil
+            end
+        end
+        local wallNow = time()
+        for i = #SYNC.pendingQueue, 1, -1 do
+            local item = SYNC.pendingQueue[i]
+            if not item.receivedAt or wallNow - item.receivedAt > PENDING_TIMEOUT then
+                table.remove(SYNC.pendingQueue, i)
+            end
+        end
+        for senderKey, state in pairs(senderSecurity) do
+            local lastActivity = math.max(state.windowStarted or 0, state.lastAutoAccepted or 0, state.blockedUntil or 0)
+            if state.blockedUntil <= now and now - lastActivity > PENDING_TIMEOUT then
+                senderSecurity[senderKey] = nil
             end
         end
     end)
@@ -430,7 +760,13 @@ local function RefreshIncomingReview()
 
     if #SYNC.pendingQueue == 0 then
         f.infoText:SetText(L["EXT_NO_PENDING"])
-        for i = 1, #f.reviewRows do f.reviewRows[i]:Hide() end
+        for i = 1, #f.reviewRows do
+            local row = f.reviewRows[i]
+            row:Hide()
+            if row.info then
+                row.info.listType, row.info.key, row.info.entry = nil, nil, nil
+            end
+        end
         for i = #f.entryCheckboxes, 1, -1 do f.entryCheckboxes[i] = nil end
         f.acceptSelectedBtn:Disable()
         f.acceptAllBtn:Disable()
@@ -453,7 +789,13 @@ local function RefreshIncomingReview()
         L["V2_SYNC_INFO"],
         sync.from, currentReviewIndex, #SYNC.pendingQueue, sync.counts.total))
 
-    for i = 1, #f.reviewRows do f.reviewRows[i]:Hide() end
+    for i = 1, #f.reviewRows do
+        local row = f.reviewRows[i]
+        row:Hide()
+        if row.info then
+            row.info.listType, row.info.key, row.info.entry = nil, nil, nil
+        end
+    end
     for i = #f.entryCheckboxes, 1, -1 do f.entryCheckboxes[i] = nil end
 
     local yOffset = 0
@@ -536,6 +878,8 @@ function SYNC:ShowIncoming()
                 table.remove(SYNC.pendingQueue, currentReviewIndex)
             end
             RefreshIncomingReview()
+            sync = nil
+            collectgarbage("collect")
         end)
 
         incomingFrame.skipBtn:SetScript("OnClick", function()

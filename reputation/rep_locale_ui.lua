@@ -89,6 +89,10 @@ local RU = {
     TR_ERR_CORRUPT = "Данные повреждены или не относятся к ReputationList", TR_ERR_REALM = "Не удалось получить данные текущего реалма",
     TR_ERR_EMPTY = "Пустая строка", TR_ERR_TEXT_FORMAT = "Не удалось распознать формат текста",
     TR_ERR_COMMON = "Модуль rep_ui_common не загружен", TR_ERR_TEXT = "Ошибка в тексте: %s", TR_ERR_EXEC = "Не удалось выполнить или разобрать текст",
+    SYNC_ERR_TOO_LARGE = "Пакет синхронизации слишком большой (максимум 512 КБ)",
+    SYNC_ERR_TOO_MANY = "В одном пакете синхронизации разрешено не более %d игроков",
+    SYNC_SENDER_BLOCKED = "|cFFFF5555[ReputationList]|r Синхронизация от %s временно заблокирована из-за слишком частых или некорректных данных.",
+    SYNC_DISABLED = "Синхронизация отключена в настройках",
 }
 
 local EN = {
@@ -179,6 +183,10 @@ local EN = {
     TR_ERR_CORRUPT = "The data is corrupted or does not belong to ReputationList", TR_ERR_REALM = "Unable to access current realm data",
     TR_ERR_EMPTY = "Empty string", TR_ERR_TEXT_FORMAT = "Unable to recognize the text format",
     TR_ERR_COMMON = "The rep_ui_common module is not loaded", TR_ERR_TEXT = "Text error: %s", TR_ERR_EXEC = "Unable to execute or parse the text",
+    SYNC_ERR_TOO_LARGE = "The synchronization package is too large (512 KB maximum)",
+    SYNC_ERR_TOO_MANY = "A synchronization package may contain no more than %d players",
+    SYNC_SENDER_BLOCKED = "|cFFFF5555[ReputationList]|r Synchronization from %s was temporarily blocked because of excessive or invalid data.",
+    SYNC_DISABLED = "Synchronization is disabled in settings",
 }
 
 local source = RL:GetCurrentLocale() == "ruRU" and RU or EN
