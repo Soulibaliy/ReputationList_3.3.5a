@@ -68,64 +68,22 @@ local function OpenAddonUI()
         print(L["UI_CB54"])
         return
     end
-    
-    if RL.UI then
-        -- Используем новый метод Toggle если доступен
-        if RL.UI.ElvUI and RL.UI.ElvUI.Toggle then
-            RL.UI.ElvUI:Toggle()
-            return
-        end
-        
-        if RL.UI.Classic and RL.UI.Classic.Toggle then
-            RL.UI.Classic:Toggle()
-            return
-        end
 
-        -- Поддержка старого метода через mainFrame
-        if RL.UI.ElvUI and RL.UI.ElvUI.mainFrame then
-            local frame = RL.UI.ElvUI.mainFrame
-            if frame:IsShown() then
-                frame:Hide()
-            else
-                frame:Show()
-                if RL.UI.ElvUI.RefreshList then
-                    RL.UI.ElvUI:RefreshList()
-                end
-            end
-            return
-        end
-        
-        if RL.UI.Classic and RL.UI.Classic.mainFrame then
-            local frame = RL.UI.Classic.mainFrame
-            if frame:IsShown() then
-                frame:Hide()
-            else
-                frame:Show()
-                if RL.UI.Classic.RefreshList then
-                    RL.UI.Classic:RefreshList()
-                end
-            end
-            return
-        end
+    if RL.UI2 and RL.UI2.Toggle then
+        local ok, err = pcall(function() RL.UI2:Toggle() end)
+        if ok then return end
+        print("|cFFFF0000[ReputationList]|r " .. string.format(L["V2_OPEN_ERROR"], tostring(err)))
     end
-    
-    -- Поддержка команд
-    if SlashCmdList["REPLISTNEW"] then
-        SlashCmdList["REPLISTNEW"]("")
-        return
-    end
-    
+
     print(L["UI_CB55"])
 end
 icon:SetScript("OnClick", function(self, button)
     if button == "LeftButton" then
         if IsShiftKeyDown() then
-            -- Social UI (если есть)
             if RL.SocialUI and RL.SocialUI.Toggle then
                 RL.SocialUI:Toggle()
             end
         else
-            -- Открываем основной UI
             OpenAddonUI()
         end
 	 elseif button == "MiddleButton" then

@@ -1,9 +1,3 @@
--- ============================================================================
--- Reputation List - Localization Module
--- Система локализации для WoW 3.3.5a
--- Поддерживаемые языки: Русский (ruRU), Английский (enUS, enGB)
--- ============================================================================
-
 local RL = ReputationList
 if not RL then return end
 
@@ -196,6 +190,12 @@ local Translations = {
 		["UI_POP1"] = "ВНИМАНИЕ ",
 		["UI_POP2"] = "ДОВЕРЕННЫЙ ",
 		["UI_POP3"] = "ЗАМЕТКА ",
+		["UI_ALERT_TITLE"] = "ПРЕДУПРЕЖДЕНИЕ",
+		["UI_ALERT_SUB_BLACKLIST"] = "Игрок находится в вашем Blacklist",
+		["UI_ALERT_SUB_WHITELIST"] = "Игрок находится в вашем Whitelist",
+		["UI_ALERT_SUB_NOTELIST"] = "Игрок находится в вашем Notelist",
+		["UI_LBL_FAC"] = "|cFFFFFF00Фракция:|r",
+		["UI_ALERT_HINT"] = "Нажмите на карточку, чтобы открыть полный профиль",
 		["UI_UVD"] = "Уведомления",
 		["UI_DEF"] = "Блокировать от BL",
 		["UI_CB1"] = "Авто-оповещение",
@@ -233,7 +233,7 @@ local Translations = {
 		["UI_CB33"] = "|cFFFF0000Ошибка открытия окна импорта|r",
 		["UI_CB34"] = "|cFF00FF00ReputationList:|r Новый UI загружен! Команда: /rlnew",
 		["UI_CB35"] = "|cFF00FF00ReputationList:|r ElvUI обнаружен. Классический UI не загружается.",
-		["UI_CB36"] = "|cFF00FF00ReputationList:|r Загрузите файл rep_ui_elvui.lua для стиля ElvUI",
+		["UI_CB36"] = "|cFF00FF00ReputationList:|r Используйте /rlv2 или /rlist ui для нового интерфейса",
 		["UI_CB37"] = "Оповестить",
 		["UI_CB38"] = "Исключить",
 		["UI_CB39"] = "Игрок:",
@@ -580,6 +580,12 @@ local Translations = {
 		["UI_POP1"] = "WARNING ",
 		["UI_POP2"] = "TRUSTED ",
 		["UI_POP3"] = "NOTE ",
+		["UI_ALERT_TITLE"] = "WARNING",
+		["UI_ALERT_SUB_BLACKLIST"] = "This player is on your Blacklist",
+		["UI_ALERT_SUB_WHITELIST"] = "This player is on your Whitelist",
+		["UI_ALERT_SUB_NOTELIST"] = "This player is on your Notelist",
+		["UI_LBL_FAC"] = "|cFFFFFF00Faction:|r",
+		["UI_ALERT_HINT"] = "Click the card to open the full profile",
 		["UI_UVD"] = "Notifications",
 		["UI_DEF"] = "Block BL",
 		["UI_CB1"] = "Auto-notification",
@@ -617,7 +623,7 @@ local Translations = {
 		["UI_CB33"] = "|cFFFF0000Error opening import window|r",
 		["UI_CB34"] = "|cFF00FF00ReputationList:|r New UI loaded! Command: /rlnew",
 		["UI_CB35"] = "|cFF00FF00ReputationList:|r ElvUI detected. Classic UI not loading.",
-		["UI_CB36"] = "|cFF00FF00ReputationList:|r Load rep_ui_elvui.lua file for ElvUI style",
+		["UI_CB36"] = "|cFF00FF00ReputationList:|r Use /rlv2 or /rlist ui for the new interface",
 		["UI_CB37"] = "Notify",
 		["UI_CB38"] = "Kick",
 		["UI_CB39"] = "Player:",
@@ -803,6 +809,60 @@ local Translations = {
 }
 
 Translations["enGB"] = Translations["enUS"]
+
+local SettingsTranslations = {
+    ruRU = {
+        SET_SECTION_NOTIFICATIONS = "Оповещения",
+        SET_AUTO_NOTIFY = "Автоматически оповещать группу",
+        SET_SELF_NOTIFY = "Дублировать уведомления в личные сообщения",
+        SET_SOUND_POPUPS = "Звук и всплывающие окна",
+        SET_FILTER_MESSAGES = "Фильтровать сообщения",
+        SET_SECTION_PROTECTION = "Защита от чёрного списка",
+        SET_BLOCK_INVITES = "Блокировать приглашения",
+        SET_BLOCK_TRADE = "Блокировать обмен",
+        SET_COLOR_CHAT = "Подсвечивать игроков в чате",
+        SET_SECTION_NAMEPLATES = "Иконки на неймплейтах",
+        SET_ENABLED = "Включено",
+        SET_CUSTOM_ICONS = "Использовать свои иконки вместо стандартных",
+        SET_SECTION_ONLINE = "Уведомления «игрок в сети»",
+        SET_SOUND = "Звук",
+        SET_WATCH_BLACKLIST = "Следить за Blacklist",
+        SET_WATCH_WHITELIST = "Следить за Whitelist",
+        SET_ONLINE_HINT = "Использует /who и проверяет по одному игроку с учётом ограничения сервера.",
+        SET_SECTION_CHAT_FILTER = "Фильтр чата",
+        SET_CHAT_FILTER_HINT = "Фразы, режим и каналы настраиваются на вкладке «ЧатФильтр» основного окна.",
+        SET_SECTION_TRANSFER = "Экспорт и импорт",
+        SET_OPEN_TRANSFER = "Открыть экспорт/импорт",
+        SET_TRANSFER_HINT = "Отправка конкретному игроку находится на вкладке «Синхронизация».",
+    },
+    enUS = {
+        SET_SECTION_NOTIFICATIONS = "Notifications",
+        SET_AUTO_NOTIFY = "Automatically notify the group",
+        SET_SELF_NOTIFY = "Also send notifications to yourself",
+        SET_SOUND_POPUPS = "Sound and popup notifications",
+        SET_FILTER_MESSAGES = "Filter messages",
+        SET_SECTION_PROTECTION = "Blacklist protection",
+        SET_BLOCK_INVITES = "Block invitations",
+        SET_BLOCK_TRADE = "Block trades",
+        SET_COLOR_CHAT = "Highlight listed players in chat",
+        SET_SECTION_NAMEPLATES = "Nameplate icons",
+        SET_ENABLED = "Enabled",
+        SET_CUSTOM_ICONS = "Use custom icons instead of standard icons",
+        SET_SECTION_ONLINE = "Player online notifications",
+        SET_SOUND = "Sound",
+        SET_WATCH_BLACKLIST = "Watch Blacklist",
+        SET_WATCH_WHITELIST = "Watch Whitelist",
+        SET_ONLINE_HINT = "Uses /who and checks one player at a time to respect the server limit.",
+        SET_SECTION_CHAT_FILTER = "Chat filter",
+        SET_CHAT_FILTER_HINT = "Configure phrases, mode, and channels on the Chat Filter tab of the main window.",
+        SET_SECTION_TRANSFER = "Export and import",
+        SET_OPEN_TRANSFER = "Open export/import",
+        SET_TRANSFER_HINT = "Use the Synchronization tab to send data to a specific player.",
+    },
+}
+
+for key, value in pairs(SettingsTranslations.ruRU) do Translations.ruRU[key] = value end
+for key, value in pairs(SettingsTranslations.enUS) do Translations.enUS[key] = value end
 
 local currentTranslations = Translations[normalizedLocale] or Translations["enUS"]
 

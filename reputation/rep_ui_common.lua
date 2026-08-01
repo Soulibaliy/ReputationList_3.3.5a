@@ -9,94 +9,6 @@ local RL = ReputationList
 RL.UICommon = RL.UICommon or {}
 local Common = RL.UICommon
 
-Common.framePools = Common.framePools or {
-    rows = {},
-    buttons = {},
-    cards = {}
-}
-
-function Common.GetPooledFrame(frameType, parent, createFunc)
-    frameType = frameType or "rows"
-    local pool = Common.framePools[frameType]
-    
-    local frame = table.remove(pool)
-    if frame then
-        frame:SetParent(parent)
-        frame:ClearAllPoints()
-        frame:Show()
-        return frame, true
-    end
-    
-    if createFunc then
-        frame = createFunc(parent)
-        return frame, false
-    end
-    
-    return nil, false
-end
-
-function Common.ReleaseFrame(frame, frameType)
-    if not frame then return end
-    frameType = frameType or "rows"
-    
-    frame:Hide()
-    frame:ClearAllPoints()
-    frame:SetParent(nil)
-    
-    frame:SetScript("OnEnter", nil)
-    frame:SetScript("OnLeave", nil)
-    frame:SetScript("OnClick", nil)
-    frame:SetScript("OnMouseDown", nil)
-    frame:SetScript("OnMouseUp", nil)
-    
-    table.insert(Common.framePools[frameType], frame)
-end
-
-function Common.ClearFramePool(frameType)
-    if frameType then
-        Common.framePools[frameType] = {}
-    else
-        for k in pairs(Common.framePools) do
-            Common.framePools[k] = {}
-        end
-    end
-end
-
-function Common.GetSimplePooledFrame(framePool, parent)
-    local frame = table.remove(framePool)
-    if frame then
-        frame:SetParent(parent)
-        frame:Show()
-        return frame
-    end
-    return nil
-end
-
-function Common.ReleaseSimpleFrame(frame, framePool)
-    frame:Hide()
-    frame:ClearAllPoints()
-    table.insert(framePool, frame)
-end
-
-function Common.CreateMainFrameWrapper(CACHE, createFunc)
-    if CACHE.mainFrame then 
-        return CACHE.mainFrame 
-    end
-    if createFunc then
-        CACHE.mainFrame = createFunc()
-        return CACHE.mainFrame
-    end
-    return nil
-end
-
-function Common.RefreshListWrapper(STATE, refreshFunc)
-    if STATE.currentTab == "settings" then
-        return
-    end
-    if refreshFunc then
-        refreshFunc()
-    end
-end
 
 function Common.CreateSettingsPanelWrapper(CACHE, parent, createFunc)
     if CACHE.settingsPanel then 
@@ -167,7 +79,6 @@ function Common.ShowExportWrapper(UI, L)
         Common.exportState.frame:Show()
     end
     
-    -- Экспортируем только текущий реалм
     local currentRealm = RL.NormalizeRealm(GetRealmName())
     local currentRealmData = {}
     if ReputationListDB and ReputationListDB.realms and ReputationListDB.realms[currentRealm] then
@@ -1075,9 +986,7 @@ function Common.CreatePlayerCardBase(L, options)
         if f.viewMode == "history" then
             f.SetViewMode("info")
         else
-            -- Для строк "Кто здесь?" f.currentPlayerData - это синтетический
-            -- объединённый объект (не прямая ссылка на запись в списке), и
-            -- реальные данные (addedDate/history/...) лежат в .listData.
+
             local histData = f.currentPlayerData
             if histData and histData.listData then
                 histData = histData.listData
@@ -1220,19 +1129,6 @@ function Common.PopulateHistoryWindow(f, data, L)
         f.histScrollFrame:SetVerticalScroll(0)
     end
 end
-
-function Common.GetPooledFrame(parent, framePool, UICommon)
-    local frame = UICommon.GetSimplePooledFrame(framePool, parent)
-    if not frame then
-        frame = CreateFrame("Frame", nil, parent)
-    end
-    return frame
-end
-
-function Common.ReleaseFrame(frame, framePool, UICommon)
-    UICommon.ReleaseSimpleFrame(frame, framePool)
-end
-
 
 function Common.CreateStandardCloseButton(frame)
     local closeBtn = CreateFrame("Button", nil, frame, "UIPanelCloseButton")

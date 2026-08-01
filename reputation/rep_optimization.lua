@@ -12,7 +12,7 @@ Opt.guidIndex = {}
 Opt.maxGuidIndex = 1000
 
 function Opt:BuildGUIDIndex()
-    self.guidIndex = {}
+    for key in pairs(self.guidIndex) do self.guidIndex[key] = nil end
     
     if not RL.GetRealmData then return end
     local realmData = RL:GetRealmData()
@@ -96,7 +96,7 @@ function Opt:FindByGUID(guid)
 end
 
 function Opt:InvalidateGUIDIndex()
-    self.guidIndex = {}
+    for key in pairs(self.guidIndex) do self.guidIndex[key] = nil end
 end
 
 function Opt:FastFind(playerName, listType, searchType)
@@ -198,7 +198,7 @@ function Opt:GetTooltipData(playerName)
 end
 
 function Opt:InvalidateCache()
-    self.cache.tooltipData = {}
+    for key in pairs(self.cache.tooltipData) do self.cache.tooltipData[key] = nil end
 end
 
 
@@ -236,11 +236,14 @@ Opt.memory = {
 }
 
 function Opt:CleanupMemory()
-    self.cache.tooltipData = {}
+    local currentTime = time()
+    for key, cached in pairs(self.cache.tooltipData) do
+        if not cached.timestamp or (currentTime - cached.timestamp) >= self.cache.tooltipTTL then
+            self.cache.tooltipData[key] = nil
+        end
+    end
     
-    collectgarbage("collect")
-    
-    self.memory.lastCleanup = time()
+    self.memory.lastCleanup = currentTime
 end
 
 if RL.TimerManager then
@@ -293,5 +296,4 @@ end
 RL.CanTriggerEvent = function(...) 
     return Opt:CanTriggerEvent(...) 
 end
-
 

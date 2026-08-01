@@ -68,7 +68,7 @@ function Memory:CleanupTable(tbl, maxSize, ttl, currentTime)
 end
 
 function Memory:PerformCleanup()
-    local currentTime = time()
+    local currentTime = GetTime()
     local cleaned = {
         notified = 0,
         cards = 0,
@@ -113,13 +113,25 @@ function Memory:PerformCleanup()
         currentTime
     )
     
-    local newQueue = {}
-    for _, alert in ipairs(RL.alertQueue) do
+    local writeIndex = 1
+    for readIndex = 1, #RL.alertQueue do
+        local alert = RL.alertQueue[readIndex]
         if alert.timestamp and (currentTime - alert.timestamp) < self.config.queueTTL then
-            table.insert(newQueue, alert)
+            RL.alertQueue[writeIndex] = alert
+            writeIndex = writeIndex + 1
         end
     end
-    RL.alertQueue = newQueue
+    for i = #RL.alertQueue, writeIndex, -1 do RL.alertQueue[i] = nil end
+    local validQueueSize = writeIndex - 1
+    if validQueueSize > self.config.maxQueue then
+        local excess = validQueueSize - self.config.maxQueue
+        for i = 1, self.config.maxQueue do
+            RL.alertQueue[i] = RL.alertQueue[i + excess]
+        end
+        for i = validQueueSize, self.config.maxQueue + 1, -1 do
+            RL.alertQueue[i] = nil
+        end
+    end
     
     local afterNotified = 0
     afterNotified = tableLen(RL.notifiedPlayers)

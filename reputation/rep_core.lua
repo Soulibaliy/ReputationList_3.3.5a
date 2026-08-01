@@ -1,6 +1,6 @@
 ReputationList = ReputationList or {}
 local RL = ReputationList
-RL.version = "1.80"
+RL.version = "2.0"
 if not RL.SanitizeString then
     error("Security module not loaded! Check .toc file order.")
 end
@@ -15,6 +15,36 @@ RL.shownCards = {}
 RL.nameCache = {}
 RL.nameCacheAccess = {}
 RL.maxNameCache = 50
+
+local TOOLTIP_NOTE_MAX_CHARS = 60
+function RL.TruncateNoteForTooltip(str, maxChars)
+    if not str or str == "" then return str end
+    maxChars = maxChars or TOOLTIP_NOTE_MAX_CHARS
+
+    local charCount = 0
+    local cutByte = nil
+    local len = string.len(str)
+    for i = 1, len do
+        local b = string.byte(str, i)
+        if b < 0x80 or b >= 0xC0 then
+            charCount = charCount + 1
+            if charCount > maxChars then
+                cutByte = i - 1
+                break
+            end
+        end
+    end
+
+    if not cutByte then
+        return str
+    end
+
+    while cutByte > 1 and string.byte(str, cutByte) and string.byte(str, cutByte) >= 0x80 and string.byte(str, cutByte) < 0xC0 do
+        cutByte = cutByte - 1
+    end
+
+    return string.sub(str, 1, cutByte) .. "..."
+end
 
 function RL.NormalizeName(name)
     if not name or name == "" then return "" end
@@ -83,9 +113,6 @@ function RL:ToggleUIMode()
     local newMode = (self:GetUIMode() == "full") and "mini" or "full"
     self:SetUIMode(newMode)
 
-    if self.UI and self.UI.Classic then
-        self.UI.Classic:ApplyUIMode()
-    end
 end
 
 local translit = {
@@ -158,10 +185,6 @@ function RL.AddHistoryRecord(playerData, changeText)
     playerData.lastUpdateChange = last.change
 end
 
--- Если "снимок на момент добавления" был полностью пуст (игрока добавили
--- без единого известного поля - просто по имени), заполняет его первыми
--- реально узнанными данными. Если в снимке уже есть хоть одно известное
--- поле, ничего не трогает - снимок остаётся историческим и неизменным.
 function RL.BackfillAddedSnapshot(playerData)
     if not playerData or not playerData.addedSnapshot then return end
     local snap = playerData.addedSnapshot
@@ -342,6 +365,7 @@ local function GetFactionByRace(race)
     
     return nil
 end
+RL.GetFactionByRace = GetFactionByRace
 
 function RL.FindPlayerInGroup(playerName)
     if not playerName then return nil end
@@ -762,16 +786,23 @@ SlashCmdList["RLIST"] = function(msg)
             print(L["UI_CB83"])
         end
     elseif cmd == "ui" then
-        local ui = (RL.UI and RL.UI.ElvUI) or (RL.UI and RL.UI.Classic)
-        if ui then
-            if ui.Toggle then
-                ui:Toggle()
-            elseif ui.frame then
-                if ui.frame:IsShown() then ui.frame:Hide() else ui.frame:Show() end
-                if ui.UpdateList and ui.frame:IsShown() then pcall(function() ui:UpdateList() end) end
+
+        if RL.UI2 and RL.UI2.Toggle then
+            local ok, err = pcall(function() RL.UI2:Toggle() end)
+            if not ok then
+                print("|cFFFF0000ReputationList v2 ошибка:|r " .. tostring(err))
+            end
+            return
+        end
+        print(L["WH_W05"])
+    elseif cmd == "v2" then
+        if RL.UI2 and RL.UI2.Toggle then
+            local ok, err = pcall(function() RL.UI2:Toggle() end)
+            if not ok then
+                print("|cFFFF0000ReputationList v2 ошибка:|r " .. tostring(err))
             end
         else
-            print(L["WH_W05"])
+            print("|cFFFF0000ReputationList:|r новый интерфейс (rep_ui_v2.lua) не загружен")
         end
     else
         print(L["WH_W06"])
@@ -1434,7 +1465,7 @@ end
 
 function RL:CheckAndUpdatePlayer(name, guid, unit)
     if not name or not guid then return end
-    if name == UNKNOWN then return end   -- Blizzard ещё не прислал реальное имя юнита
+    if name == UNKNOWN then return end
     
     local normName = RL.NormalizeName(name)
     local searchKey = string.lower(normName)
@@ -1502,8 +1533,8 @@ function RL:CheckAndUpdatePlayer(name, guid, unit)
                 end
                 RL.InvalidateCache()
                 RL:SaveSettings()
-                if UI and UI.RefreshList then
-                    UI:RefreshList()
+                if RL.UI2 and RL.UI2.Refresh and RL.UI2.frame and RL.UI2.frame:IsShown() then
+                    RL.UI2:Refresh()
                 end
             end
             
@@ -1564,8 +1595,8 @@ function RL:CheckAndUpdatePlayer(name, guid, unit)
                 end
                 RL.InvalidateCache()
                 RL:SaveSettings()
-                if UI and UI.RefreshList then
-                    UI:RefreshList()
+                if RL.UI2 and RL.UI2.Refresh and RL.UI2.frame and RL.UI2.frame:IsShown() then
+                    RL.UI2:Refresh()
                 end
             end
             
@@ -1660,9 +1691,9 @@ end
 
 			if isNewPlayer and not alreadyNotified then
 				if guid then
-					RL.notifiedPlayers[guid] = true
+					RL.notifiedPlayers[guid] = GetTime()
 				end
-				RL.notifiedPlayers[searchKey] = true
+				RL.notifiedPlayers[searchKey] = GetTime()
     
 				local data = nil
 				if guid then
@@ -1817,551 +1848,15 @@ local function BlockInvites(name)
 end
 
 function RL:CreatePlayerCardFrame()
-    local f = CreateFrame("Frame", "RepListPlayerCard", UIParent)
-    f:SetSize(400, 350)
-    f:SetFrameStrata("DIALOG")
-    f:SetToplevel(true)
-
-    if ReputationListDB.cardPositions and ReputationListDB.cardPositions.x then
-        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", ReputationListDB.cardPositions.x, ReputationListDB.cardPositions.y)
-    else
-        f:SetPoint("CENTER")
+    if not RL.UIAlert then
+        error("rep_ui_alert.lua not loaded! Check .toc file order.")
     end
-
-    local useElvUI = IsAddOnLoaded("ElvUI")
-    local E, S
-    if useElvUI then
-        if _G["ElvUI"] then
-            E = _G["ElvUI"][1]
-            if E then
-                S = E:GetModule('Skins')
-            end
-        end
-        if not E or not S then
-            useElvUI = false
-        end
-    end
-
-    if useElvUI then
-        f:SetTemplate("Transparent")
-        f:CreateShadow()
-    else
-        f:SetBackdrop({
-            bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-            tile = true, tileSize = 16, edgeSize = 16,
-            insets = {left = 4, right = 4, top = 4, bottom = 4}
-        })
-        f:SetBackdropColor(0.1, 0.1, 0.1, 0.95)
-    end
-
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    f:SetScript("OnDragStop", function(self)
-        self:StopMovingOrSizing()
-        local x, y = self:GetLeft(), self:GetTop()
-        ReputationListDB.cardPositions = ReputationListDB.cardPositions or {}
-        ReputationListDB.cardPositions.x = x
-        ReputationListDB.cardPositions.y = y
-    end)
-
-    f.title = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.title:FontTemplate(nil, 16, "OUTLINE")
-    else
-        f.title:SetFontObject("GameFontNormalLarge")
-    end
-    f.title:SetPoint("TOP", 0, -15)
-    f.title:SetTextColor(1, 0, 0)
-    f.title:SetText(L["UI_POP1"] .. "BLACKLIST")
-
-    f.factionLogo = f:CreateTexture(nil, "ARTWORK")
-    f.factionLogo:SetSize(80, 80)
-    f.factionLogo:SetPoint("TOPLEFT", 20, -50)
-
-    local startY = -50
-    local leftX = 110
-
-    f.nameLabel = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.nameLabel:FontTemplate()
-    else
-        f.nameLabel:SetFontObject("GameFontHighlight")
-    end
-    f.nameLabel:SetPoint("TOPLEFT", leftX, startY)
-    f.nameLabel:SetText(L["UI_LBL_NM"])
-
-    f.nameValue = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.nameValue:FontTemplate()
-    else
-        f.nameValue:SetFontObject("GameFontNormal")
-    end
-    f.nameValue:SetPoint("LEFT", f.nameLabel, "RIGHT", 5, 0)
-    f.nameValue:SetWidth(200)
-    f.nameValue:SetJustifyH("LEFT")
-
-    f.classLabel = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.classLabel:FontTemplate()
-    else
-        f.classLabel:SetFontObject("GameFontHighlight")
-    end
-    f.classLabel:SetPoint("TOPLEFT", leftX, startY - 25)
-    f.classLabel:SetText(L["UI_LBL_CL"])
-
-    f.classValue = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.classValue:FontTemplate()
-    else
-        f.classValue:SetFontObject("GameFontNormal")
-    end
-    f.classValue:SetPoint("LEFT", f.classLabel, "RIGHT", 5, 0)
-
-    f.raceLabel = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.raceLabel:FontTemplate()
-    else
-        f.raceLabel:SetFontObject("GameFontHighlight")
-    end
-    f.raceLabel:SetPoint("TOPLEFT", leftX, startY - 45)
-    f.raceLabel:SetText(L["UI_LBL_RC"])
-
-    f.raceValue = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.raceValue:FontTemplate()
-    else
-        f.raceValue:SetFontObject("GameFontNormal")
-    end
-    f.raceValue:SetPoint("LEFT", f.raceLabel, "RIGHT", 5, 0)
-
-    f.levelLabel = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.levelLabel:FontTemplate()
-    else
-        f.levelLabel:SetFontObject("GameFontHighlight")
-    end
-    f.levelLabel:SetPoint("TOPLEFT", leftX, startY - 65)
-    f.levelLabel:SetText(L["UI_CB84"])
-
-    f.levelValue = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.levelValue:FontTemplate()
-    else
-        f.levelValue:SetFontObject("GameFontNormal")
-    end
-    f.levelValue:SetPoint("LEFT", f.levelLabel, "RIGHT", 5, 0)
-
-    f.guildLabel = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.guildLabel:FontTemplate()
-    else
-        f.guildLabel:SetFontObject("GameFontHighlight")
-    end
-    f.guildLabel:SetPoint("TOPLEFT", leftX, startY - 85)
-    f.guildLabel:SetText(L["UI_LBL_GLD"])
-
-    f.guildValue = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.guildValue:FontTemplate()
-    else
-        f.guildValue:SetFontObject("GameFontNormal")
-    end
-    f.guildValue:SetPoint("LEFT", f.guildLabel, "RIGHT", 5, 0)
-    f.guildValue:SetWidth(200)
-    f.guildValue:SetJustifyH("LEFT")
-
-    f.guidLabel = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.guidLabel:FontTemplate(nil, 11)
-    else
-        f.guidLabel:SetFontObject("GameFontHighlightSmall")
-    end
-    f.guidLabel:SetPoint("TOPLEFT", 20, startY - 110)
-    f.guidLabel:SetText("|cFFFFFF00GUID:|r")
-
-    f.guidValue = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.guidValue:FontTemplate(nil, 11)
-    else
-        f.guidValue:SetFontObject("GameFontNormalSmall")
-    end
-    f.guidValue:SetPoint("LEFT", f.guidLabel, "RIGHT", 5, 0)
-    f.guidValue:SetWidth(300)
-    f.guidValue:SetJustifyH("LEFT")
-
-    f.noteLabel = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.noteLabel:FontTemplate()
-    else
-        f.noteLabel:SetFontObject("GameFontHighlight")
-    end
-    f.noteLabel:SetPoint("TOPLEFT", 20, -175)
-    f.noteLabel:SetText(L["UI_LBL_NT"])
-
-    f.noteText = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then
-        f.noteText:FontTemplate()
-    else
-        f.noteText:SetFontObject("GameFontNormal")
-    end
-    f.noteText:SetPoint("TOPLEFT", 20, -195)
-    f.noteText:SetPoint("BOTTOMRIGHT", -20, 40)
-    f.noteText:SetJustifyH("LEFT")
-    f.noteText:SetJustifyV("TOP")
-    f.noteText:SetTextColor(1, 1, 0.5)
-
-    local closeBtn
-    if useElvUI then
-        closeBtn = CreateFrame("Button", nil, f)
-    else
-        closeBtn = CreateFrame("Button", nil, f, "GameMenuButtonTemplate")
-    end
-    closeBtn:SetSize(100, 25)
-    closeBtn:SetPoint("BOTTOM", 0, 10)
-    if useElvUI and S then
-        S:HandleButton(closeBtn)
-        local closeBtnText = closeBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        closeBtnText:SetPoint("CENTER")
-        closeBtnText:SetText(L["UI_CLOSE"])
-    else
-        closeBtn:SetText(L["UI_CLOSE"])
-    end
-    closeBtn:SetScript("OnClick", function()
-        f:Hide()
-        if f.currentPlayer then
-            RL.shownCards[f.currentPlayer] = nil
-        end
-    end)
-
-    f.infoElements = {
-        f.factionLogo,
-        f.nameLabel, f.nameValue,
-        f.classLabel, f.classValue,
-        f.raceLabel, f.raceValue,
-        f.levelLabel, f.levelValue,
-        f.guildLabel, f.guildValue,
-        f.guidLabel, f.guidValue,
-        f.noteLabel, f.noteText,
-    }
-
-    local historyBtn
-    if useElvUI then
-        historyBtn = CreateFrame("Button", nil, f)
-    else
-        historyBtn = CreateFrame("Button", nil, f, "GameMenuButtonTemplate")
-    end
-    historyBtn:SetSize(90, 22)
-    historyBtn:SetPoint("TOPRIGHT", -10, -12)
-
-    local historyBtnTextFS
-    if useElvUI and S then
-        S:HandleButton(historyBtn)
-        historyBtnTextFS = historyBtn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        historyBtnTextFS:SetPoint("CENTER")
-        historyBtnTextFS:SetText(L["HIST_BTN"])
-    else
-        historyBtn:SetText(L["HIST_BTN"])
-    end
-
-    local function SetHistoryBtnText(text)
-        if historyBtnTextFS then
-            historyBtnTextFS:SetText(text)
-        else
-            historyBtn:SetText(text)
-        end
-    end
-
-    local HIST_ROW_HEIGHT = 16
-    local HIST_MAX_ROWS = 20
-    local sectionX = 20
-    local hy = -50
-
-    f.histPlayerLine = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then f.histPlayerLine:FontTemplate() else f.histPlayerLine:SetFontObject("GameFontHighlight") end
-    f.histPlayerLine:SetPoint("TOPLEFT", sectionX, hy)
-    f.histPlayerLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
-    f.histPlayerLine:SetJustifyH("LEFT")
-    if f.histPlayerLine.SetWordWrap then f.histPlayerLine:SetWordWrap(false) end
-    hy = hy - 18
-
-    f.histAddedLine = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then f.histAddedLine:FontTemplate(nil, 11) else f.histAddedLine:SetFontObject("GameFontHighlightSmall") end
-    f.histAddedLine:SetPoint("TOPLEFT", sectionX, hy)
-    f.histAddedLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
-    f.histAddedLine:SetJustifyH("LEFT")
-    if f.histAddedLine.SetWordWrap then f.histAddedLine:SetWordWrap(false) end
-    hy = hy - 16
-
-    f.histAddedByLine = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then f.histAddedByLine:FontTemplate(nil, 11) else f.histAddedByLine:SetFontObject("GameFontHighlightSmall") end
-    f.histAddedByLine:SetPoint("TOPLEFT", sectionX, hy)
-    f.histAddedByLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
-    f.histAddedByLine:SetJustifyH("LEFT")
-    if f.histAddedByLine.SetWordWrap then f.histAddedByLine:SetWordWrap(false) end
-    hy = hy - 18
-
-    f.histDataHeader = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then f.histDataHeader:FontTemplate(nil, 11) else f.histDataHeader:SetFontObject("GameFontHighlightSmall") end
-    f.histDataHeader:SetPoint("TOPLEFT", sectionX, hy)
-    f.histDataHeader:SetText(L["HIST_ADDED_DATA"])
-    hy = hy - 15
-
-    f.histDataValue = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then f.histDataValue:FontTemplate(nil, 11) else f.histDataValue:SetFontObject("GameFontNormalSmall") end
-    f.histDataValue:SetPoint("TOPLEFT", sectionX + 5, hy)
-    f.histDataValue:SetPoint("RIGHT", f, "RIGHT", -20, 0)
-    f.histDataValue:SetJustifyH("LEFT")
-    f.histDataValue:SetJustifyV("TOP")
-    f.histDataValue:SetSpacing(2)
-    hy = hy - 32
-
-    f.histLastSeenLine = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then f.histLastSeenLine:FontTemplate(nil, 11) else f.histLastSeenLine:SetFontObject("GameFontHighlightSmall") end
-    f.histLastSeenLine:SetPoint("TOPLEFT", sectionX, hy)
-    f.histLastSeenLine:SetPoint("RIGHT", f, "RIGHT", -20, 0)
-    f.histLastSeenLine:SetJustifyH("LEFT")
-    if f.histLastSeenLine.SetWordWrap then f.histLastSeenLine:SetWordWrap(false) end
-    hy = hy - 18
-
-    f.histDivider = f:CreateTexture(nil, "ARTWORK")
-    f.histDivider:SetHeight(1)
-    f.histDivider:SetPoint("TOPLEFT", sectionX, hy)
-    f.histDivider:SetPoint("RIGHT", f, "RIGHT", -20, 0)
-    f.histDivider:SetTexture(1, 1, 1, 0.2)
-    hy = hy - 10
-
-    f.histUpdatesSectionLabel = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then f.histUpdatesSectionLabel:FontTemplate() else f.histUpdatesSectionLabel:SetFontObject("GameFontNormal") end
-    f.histUpdatesSectionLabel:SetPoint("TOPLEFT", sectionX, hy)
-    f.histUpdatesSectionLabel:SetText(L["HIST_UPDATES_SECTION"])
-    f.histUpdatesSectionLabel:SetTextColor(1, 0.82, 0)
-    hy = hy - 16
-
-    f.histLastUpdateValue = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then f.histLastUpdateValue:FontTemplate(nil, 11) else f.histLastUpdateValue:SetFontObject("GameFontNormalSmall") end
-    f.histLastUpdateValue:SetPoint("TOPLEFT", sectionX, hy)
-    f.histLastUpdateValue:SetPoint("RIGHT", f, "RIGHT", -20, 0)
-    f.histLastUpdateValue:SetJustifyH("LEFT")
-    f.histLastUpdateValue:SetTextColor(0.6, 1, 0.6)
-    hy = hy - 32
-
-    local histScrollFrame = CreateFrame("ScrollFrame", nil, f)
-    histScrollFrame:SetPoint("TOPLEFT", sectionX, hy)
-    histScrollFrame:SetPoint("BOTTOMRIGHT", -34, 40)
-
-    local histContent = CreateFrame("Frame", nil, histScrollFrame)
-    histContent:SetSize(1, 1)
-    histScrollFrame:SetScrollChild(histContent)
-
-    local histScrollbar = CreateFrame("Slider", nil, f)
-    histScrollbar:SetPoint("TOPLEFT", histScrollFrame, "TOPRIGHT", 4, 0)
-    histScrollbar:SetPoint("BOTTOMLEFT", histScrollFrame, "BOTTOMRIGHT", 4, 0)
-    histScrollbar:SetWidth(16)
-    histScrollbar:SetOrientation("VERTICAL")
-    histScrollbar:SetThumbTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
-    histScrollbar:SetBackdrop({
-        bgFile = "Interface\\Buttons\\UI-SliderBar-Background",
-        edgeFile = "Interface\\Buttons\\UI-SliderBar-Border",
-        tile = true, tileSize = 8, edgeSize = 8,
-        insets = { left = 3, right = 3, top = 6, bottom = 6 }
-    })
-    histScrollbar:SetMinMaxValues(0, 100)
-    histScrollbar:SetValueStep(1)
-    histScrollbar:SetValue(0)
-    histScrollbar:SetScript("OnValueChanged", function(self, value)
-        histScrollFrame:SetVerticalScroll(value)
-    end)
-
-    histScrollFrame:EnableMouseWheel(true)
-    histScrollFrame:SetScript("OnMouseWheel", function(self, delta)
-        local current = histScrollbar:GetValue()
-        local minV, maxV = histScrollbar:GetMinMaxValues()
-        local newV = math.max(minV, math.min(maxV, current - delta * (HIST_ROW_HEIGHT * 3)))
-        histScrollbar:SetValue(newV)
-    end)
-
-    f.histScrollFrame = histScrollFrame
-    f.histContent = histContent
-    f.histScrollbar = histScrollbar
-
-    f.histRows = {}
-    for i = 1, HIST_MAX_ROWS do
-        local row = histContent:CreateFontString(nil, "OVERLAY")
-        if useElvUI then row:FontTemplate(nil, 11) else row:SetFontObject("GameFontHighlightSmall") end
-        row:SetPoint("TOPLEFT", 0, 0)
-        row:SetPoint("RIGHT", histContent, "RIGHT", 0, 0)
-        row:SetJustifyH("LEFT")
-        row:SetJustifyV("TOP")
-        if row.SetWordWrap then row:SetWordWrap(true) end
-        row:Hide()
-        f.histRows[i] = row
-    end
-
-    f.histNoUpdatesText = histContent:CreateFontString(nil, "OVERLAY")
-    if useElvUI then f.histNoUpdatesText:FontTemplate(nil, 11) else f.histNoUpdatesText:SetFontObject("GameFontHighlightSmall") end
-    f.histNoUpdatesText:SetPoint("TOPLEFT", 0, 0)
-    f.histNoUpdatesText:SetText(L["HIST_NO_UPDATES"])
-    f.histNoUpdatesText:SetTextColor(0.6, 0.6, 0.6)
-    f.histNoUpdatesText:Hide()
-
-    f.histNoDataText = f:CreateFontString(nil, "OVERLAY")
-    if useElvUI then f.histNoDataText:FontTemplate() else f.histNoDataText:SetFontObject("GameFontHighlight") end
-    f.histNoDataText:SetPoint("CENTER", 0, -20)
-    f.histNoDataText:SetTextColor(1, 0.5, 0.5)
-    f.histNoDataText:SetText(L["HIST_NO_DATA"])
-    f.histNoDataText:Hide()
-
-    f.historyElements = {
-        f.histPlayerLine, f.histAddedLine, f.histAddedByLine,
-        f.histDataHeader, f.histDataValue, f.histLastSeenLine,
-        f.histDivider, f.histUpdatesSectionLabel, f.histLastUpdateValue,
-        f.histScrollFrame, f.histScrollbar,
-    }
-
-    f.viewMode = "info"
-
-    f.SetViewMode = function(mode)
-        f.viewMode = mode
-        local showInfo = (mode ~= "history")
-
-        for _, el in ipairs(f.infoElements) do
-            if el then
-                if showInfo then el:Show() else el:Hide() end
-            end
-        end
-        for _, el in ipairs(f.historyElements) do
-            if el then
-                if showInfo then el:Hide() else el:Show() end
-            end
-        end
-
-        if showInfo then
-            f.histNoDataText:Hide()
-            SetHistoryBtnText(L["HIST_BTN"])
-        else
-            SetHistoryBtnText(L["HIST_BACK_BTN"])
-        end
-    end
-
-    historyBtn:SetScript("OnClick", function()
-        if f.viewMode == "history" then
-            f.SetViewMode("info")
-        else
-            local realData = nil
-            if f.currentListType and f.currentPlayer then
-                local rd = RL:GetRealmData()
-                if rd and rd[f.currentListType] then
-                    realData = rd[f.currentListType][f.currentPlayer]
-                end
-            end
-            if RL.UICommon and RL.UICommon.PopulateHistoryWindow then
-                RL.UICommon.PopulateHistoryWindow(f, realData, L)
-            end
-            f.SetViewMode("history")
-        end
-    end)
-
-    f.historyBtn = historyBtn
-    f.SetViewMode("info")
-
-    RL.playerCardFrame = f
-    f:Hide()
+    return RL.UIAlert:CreateFrame()
 end
 
 function RL:UpdatePlayerCard(playerName, playerData)
-    local f = RL.playerCardFrame
-    if not f then return end
-
-    if not playerData then
-        playerData = {
-            name = playerName,
-            note = "Нет данных",
-            guid = nil,
-            class = nil,
-            race = nil,
-            level = nil,
-            guild = nil,
-            faction = nil
-        }
-    end
-
-    if not playerData.faction and playerData.race then
-        playerData.faction = GetFactionByRace(playerData.race)
-    end
-
-    local classColors = RAID_CLASS_COLORS or {
-        WARRIOR = {r=0.78, g=0.61, b=0.43},
-        PALADIN = {r=0.96, g=0.55, b=0.73},
-        HUNTER = {r=0.67, g=0.83, b=0.45},
-        ROGUE = {r=1.00, g=0.96, b=0.41},
-        PRIEST = {r=1.00, g=1.00, b=1.00},
-        DEATHKNIGHT = {r=0.77, g=0.12, b=0.23},
-        SHAMAN = {r=0.00, g=0.44, b=0.87},
-        MAGE = {r=0.41, g=0.80, b=0.94},
-        WARLOCK = {r=0.58, g=0.51, b=0.79},
-        DRUID = {r=1.00, g=0.49, b=0.04}
-    }
-
-    local classColor = {r=1, g=0.82, b=0}
-    if playerData.class and classColors[playerData.class] then
-        classColor = classColors[playerData.class]
-    end
-
-    if playerData.faction == "Alliance" then
-        f.factionLogo:SetTexture("Interface\\TargetingFrame\\UI-PVP-Alliance")
-    elseif playerData.faction == "Horde" then
-        f.factionLogo:SetTexture("Interface\\TargetingFrame\\UI-PVP-Horde")
-    else
-        f.factionLogo:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-    end
-
-    f.nameValue:SetText(playerData.name or L["UI_F_UN"])
-    f.nameValue:SetTextColor(classColor.r, classColor.g, classColor.b)
-    f.classValue:SetText(playerData.class or L["UI_F_UNO"])
-    f.raceValue:SetText(playerData.race or L["UI_F_UN2"])
-    f.levelValue:SetText(tostring(playerData.level or "?"))
-    f.guildValue:SetText(playerData.guild or L["NO"])
-    f.guidValue:SetText(playerData.guid or L["UI_F_V"])
-
-    local noteText = playerData.note or L["UI_F_N"]
-    f.noteText:SetText(noteText)
-	
-local listType = nil
-local realmData = RL:GetRealmData()
-local key = string.lower(playerName or "")
-
-if realmData.blacklist[key] then
-    listType = "blacklist"
-    f.title:SetText(L["UI_POP1"] .. "BLACKLIST")
-    f.title:SetTextColor(1, 0, 0)
-    if not useElvUI then
-        f:SetBackdropBorderColor(0.8, 0.1, 0.1, 1)
-    end
-elseif realmData.whitelist[key] then
-    listType = "whitelist"
-    f.title:SetText(L["UI_POP2"] .. "WHITELIST")
-    f.title:SetTextColor(0, 1, 0)
-    if not useElvUI then
-        f:SetBackdropBorderColor(0.1, 0.8, 0.1, 1)
-    end
-elseif realmData.notelist[key] then
-    listType = "notelist"
-    f.title:SetText(L["UI_POP3"] .. "NOTELIST")
-    f.title:SetTextColor(1, 0.84, 0)
-    if not useElvUI then
-        f:SetBackdropBorderColor(1, 0.84, 0, 1)
-    end
-end
-
-    f.currentPlayer = string.lower(playerName or "")
-    f.currentListType = listType
-
-    if f.SetViewMode then
-        f.SetViewMode("info")
-    end
+    if not RL.UIAlert then return end
+    RL.UIAlert:Update(playerName, playerData)
 end
 
 function RL:ShowPlayerCard(playerName, playerData, forceShow)
@@ -2370,7 +1865,7 @@ function RL:ShowPlayerCard(playerName, playerData, forceShow)
     end
     
     if UnitAffectingCombat("player") then
-        table.insert(RL.alertQueue, {name = playerName, data = playerData})
+        table.insert(RL.alertQueue, {name = playerName, data = playerData, timestamp = GetTime()})
         return
     end
     
@@ -2388,7 +1883,7 @@ function RL:ShowPlayerCard(playerName, playerData, forceShow)
     end
     
     RL.alertCooldowns[key] = now
-    RL.shownCards[key] = true
+    RL.shownCards[key] = now
     
     if not RL.playerCardFrame then
         RL:CreatePlayerCardFrame()
@@ -2435,12 +1930,13 @@ function RL:ShowTooltipInfo(playerName)
               or realmData.notelist[key]
     
     if data then
+        local shortNote = RL.TruncateNoteForTooltip(data.note)
         if realmData.blacklist[key] then
-            GameTooltip:AddLine("|cFFFF0000Blacklist:|r " .. data.note, 1, 1, 1)
+            GameTooltip:AddLine("|cFFFF0000Blacklist:|r " .. shortNote, 1, 1, 1, false)
         elseif realmData.whitelist[key] then
-            GameTooltip:AddLine("|cFF00FF00Whitelist:|r " .. data.note, 1, 1, 1)
+            GameTooltip:AddLine("|cFF00FF00Whitelist:|r " .. shortNote, 1, 1, 1, false)
         elseif realmData.notelist[key] then
-            GameTooltip:AddLine("|cFFFFAA00Notelist:|r " .. data.note, 1, 1, 1)
+            GameTooltip:AddLine("|cFFFFAA00Notelist:|r " .. shortNote, 1, 1, 1, false)
         end
         GameTooltip:Show()
     else
@@ -2661,8 +2157,11 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
             SLASH_REPLISTUI1 = "/rlistui"
             SLASH_REPLISTUI2 = "/rlui"
             SlashCmdList["REPLISTUI"] = function()
-                local ui = (RL.UI and RL.UI.ElvUI) or (RL.UI and RL.UI.Classic)
-                if ui and ui.Toggle then ui:Toggle() else print(L["WEM42"]) end
+                if RL.UI2 and RL.UI2.Toggle then
+                    local ok, err = pcall(function() RL.UI2:Toggle() end)
+                    if ok then return end
+                end
+                print(L["WEM42"])
             end
         end
         
@@ -2991,8 +2490,8 @@ function RL:CheckMouseoverUnit()
             end
             RL.InvalidateCache()
             self:SaveSettings()
-            if UI and UI.RefreshList then
-                UI:RefreshList()
+            if RL.UI2 and RL.UI2.Refresh and RL.UI2.frame and RL.UI2.frame:IsShown() then
+                RL.UI2:Refresh()
             end
         end
     else
@@ -3050,8 +2549,8 @@ function RL:CheckMouseoverUnit()
                     end
                     RL.InvalidateCache()
                     self:SaveSettings()
-                    if UI and UI.RefreshList then
-                        UI:RefreshList()
+                    if RL.UI2 and RL.UI2.Refresh and RL.UI2.frame and RL.UI2.frame:IsShown() then
+                        RL.UI2:Refresh()
                     end
                 end
             end
@@ -3125,13 +2624,14 @@ tooltipFrame:SetScript("OnEvent", function(self, event)
                     GameTooltip:AddLine(" ")
                     
                     local displayNote = (note and note ~= "") and note or L["UI_F_N"]
+                    displayNote = RL.TruncateNoteForTooltip(displayNote)
 
 					if status == "blacklist" then
-						GameTooltip:AddLine("|cFFFF0000Blacklist:|r " .. displayNote, 1, 1, 1)
+						GameTooltip:AddLine("|cFFFF0000Blacklist:|r " .. displayNote, 1, 1, 1, false)
 					elseif status == "whitelist" then
-						GameTooltip:AddLine("|cFF00FF00Whitelist:|r " .. displayNote, 1, 1, 1)
+						GameTooltip:AddLine("|cFF00FF00Whitelist:|r " .. displayNote, 1, 1, 1, false)
 					elseif status == "notelist" then
-						GameTooltip:AddLine("|cFFFFAA00Notelist:|r " .. displayNote, 1, 1, 1)
+						GameTooltip:AddLine("|cFFFFAA00Notelist:|r " .. displayNote, 1, 1, 1, false)
 					end
                     
                     GameTooltip:Show()

@@ -109,34 +109,32 @@ function GroupTracker:GetGroupMemberExtendedInfo(playerName)
     return extendedInfo
 end
 
+local ALL_MEMBERS_POOL = {}
+local ALL_MEMBERS_OUT = {}
+
 function GroupTracker:GetAllGroupMembersWithListInfo()
     local members = {}
-    local result = {}
     if ReputationGroupTrackerDB and ReputationGroupTrackerDB.whoHereCache then
         members = ReputationGroupTrackerDB.whoHereCache
     end
+    for i = #ALL_MEMBERS_OUT, 1, -1 do ALL_MEMBERS_OUT[i] = nil end
     for name, info in pairs(members) do
         local listType, listKey, listData = RL:FindPlayerInAllLists(info.name)
-        local extendedInfo = {
-            name = info.name,
-            guid = info.guid,
-            class = info.class,
-            race = info.race,
-            level = info.level,
-            guild = info.guild,
-            faction = info.faction,
-            inList = listType ~= nil,
-            listType = listType,
-            listData = listData,
-            note = listData and listData.note or nil,
-            lastSeen = info.lastSeen,
-        }
-        table.insert(result, extendedInfo)
+        local e = ALL_MEMBERS_POOL[name]
+        if not e then
+            e = {}
+            ALL_MEMBERS_POOL[name] = e
+        end
+        e.name, e.guid, e.class = info.name, info.guid, info.class
+        e.race, e.level, e.guild = info.race, info.level, info.guild
+        e.faction, e.inList, e.listType = info.faction, listType ~= nil, listType
+        e.listData, e.note, e.lastSeen = listData, listData and listData.note or nil, info.lastSeen
+        ALL_MEMBERS_OUT[#ALL_MEMBERS_OUT + 1] = e
     end
-    table.sort(result, function(a, b)
+    table.sort(ALL_MEMBERS_OUT, function(a, b)
         return a.name < b.name
     end)
-    return result
+    return ALL_MEMBERS_OUT
 end
 
 function GroupTracker:SaveCurrentGroup()
@@ -222,12 +220,6 @@ function GroupTracker:ClearWhoHereCache()
     ReputationGroupTrackerDB.currentGroup = nil
     wasInGroupPreviously = false
     
-    if RL.UI and RL.UI.Classic and RL.UI.Classic.OnGroupUpdate then
-        RL.UI.Classic:OnGroupUpdate()
-    end
-    if RL.UI and RL.UI.ElvUI and RL.UI.ElvUI.OnGroupUpdate then
-        RL.UI.ElvUI:OnGroupUpdate()
-    end
 end
 
 function GroupTracker:OnGroupRosterUpdate()
@@ -235,12 +227,6 @@ function GroupTracker:OnGroupRosterUpdate()
     
     self:SaveCurrentGroup()
     
-    if RL.UI and RL.UI.Classic and RL.UI.Classic.OnGroupUpdate then
-        RL.UI.Classic:OnGroupUpdate()
-    end
-    if RL.UI and RL.UI.ElvUI and RL.UI.ElvUI.OnGroupUpdate then
-        RL.UI.ElvUI:OnGroupUpdate()
-    end
 end
 
 function GroupTracker:Initialize()

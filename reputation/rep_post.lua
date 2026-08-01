@@ -4,10 +4,6 @@ if not RL then return end
 local PostUI = {}
 RL.PostUI = PostUI
 
-local CACHE = {
-    markedMails = {},
-}
-
 local function GetListMarkup(listType)
     if listType == "blacklist" then
         return "[Blacklist]", {1, 0.3, 0.3}
@@ -84,10 +80,8 @@ local function UpdateMailIndicators()
                     
                     if listType then
                         CreateMarkIndicator(mailItem, senderFS, listType)
-                        CACHE.markedMails[mailIndex] = true
                     elseif mailItem.repMarkup then
                         mailItem.repMarkup:Hide()
-                        CACHE.markedMails[mailIndex] = nil
                     end
                 end
             end
@@ -104,7 +98,6 @@ local function CleanupMailMarkers()
             mailItem.repMarkup:Hide()
         end
     end
-    CACHE.markedMails = {}
 end
 
 function PostUI:Initialize()

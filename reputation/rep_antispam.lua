@@ -1,4 +1,4 @@
--- ====================================================================
+-- -- ====================================================================
 -- ReputationList Anti-Spam Module for WoW 3.3.5a
 -- ====================================================================
 
@@ -145,7 +145,6 @@ function AS:CanShowPopupCard(playerName)
     
     self.popupCardCooldowns[key] = currentTime
     
-    -- LRU очистка при превышении лимита
     local count = 0
     for _ in pairs(self.popupCardCooldowns) do
         count = count + 1
@@ -247,21 +246,18 @@ end
 function AS:Cleanup()
     local currentTime = time()
     
-    -- Очистка adaptive.playerStats (старше 10 минут)
     for playerKey, stats in pairs(self.adaptive.playerStats) do
-        if (currentTime - stats.lastSeen) > 600 then  -- 10 минут
+        if (currentTime - stats.lastSeen) > 600 then
             self.adaptive.playerStats[playerKey] = nil
         end
     end
     
-    -- Очистка popupCardCooldowns (старше 5 минут)
     for playerKey, timestamp in pairs(self.popupCardCooldowns) do
-        if (currentTime - timestamp) > 300 then  -- 5 минут
+        if (currentTime - timestamp) > 300 then
             self.popupCardCooldowns[playerKey] = nil
         end
     end
     
-    -- Очистка counters.total (старше 1 минуты)
     local newTotal = {}
     for _, notif in ipairs(self.counters.total) do
         if (currentTime - notif.timestamp) < 60 then
@@ -270,7 +266,6 @@ function AS:Cleanup()
     end
     self.counters.total = newTotal
     
-    -- Очистка counters.popups (старше 1 минуты)
     local newPopups = {}
     for _, popup in ipairs(self.counters.popups) do
         if (currentTime - popup.timestamp) < 60 then

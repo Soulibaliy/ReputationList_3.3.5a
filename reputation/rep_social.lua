@@ -49,7 +49,7 @@ local CONFIG_ELVUI = {
     SETTINGS_PANEL_LEFT = 20,
     SETTINGS_PANEL_TOP = -90,
     SETTINGS_PANEL_RIGHT = -50,
-    SETTINGS_PANEL_BOTTOM = 50,
+    SETTINGS_PANEL_BOTTOM = 130,
     
     SCROLL_LEFT = 30,
     SCROLL_TOP = -140,
@@ -116,7 +116,7 @@ local CONFIG_CLASSIC = {
     SETTINGS_PANEL_LEFT = 20,
     SETTINGS_PANEL_TOP = -90,
     SETTINGS_PANEL_RIGHT = -50,
-    SETTINGS_PANEL_BOTTOM = 50,
+    SETTINGS_PANEL_BOTTOM = 130,
     
     SCROLL_LEFT = 30,
     SCROLL_TOP = -135,
@@ -184,6 +184,45 @@ local CACHE = {
     addForm = nil,
     lastCleanup = 0,
 }
+
+local deferredTasks, deferredTaskPool = {}, {}
+local deferredDriver = CreateFrame("Frame")
+deferredDriver:Hide()
+deferredDriver:SetScript("OnUpdate", function(self, elapsed)
+    local i = #deferredTasks
+    while i >= 1 do
+        local task = deferredTasks[i]
+        task.remaining = task.remaining - elapsed
+        if task.remaining <= 0 then
+            deferredTasks[i] = deferredTasks[#deferredTasks]
+            deferredTasks[#deferredTasks] = nil
+            local fn, arg1, arg2 = task.fn, task.arg1, task.arg2
+            task.fn, task.arg1, task.arg2 = nil, nil, nil
+            deferredTaskPool[#deferredTaskPool + 1] = task
+            fn(arg1, arg2)
+        end
+        i = i - 1
+    end
+    if #deferredTasks == 0 then self:Hide() end
+end)
+
+local function ScheduleDeferred(delay, fn, arg1, arg2)
+    local task = deferredTaskPool[#deferredTaskPool]
+    if task then deferredTaskPool[#deferredTaskPool] = nil else task = {} end
+    task.remaining, task.fn, task.arg1, task.arg2 = delay, fn, arg1, arg2
+    deferredTasks[#deferredTasks + 1] = task
+    deferredDriver:Show()
+end
+
+local function HideCachedRows()
+    for i = 1, #CACHE.rows do
+        local row = CACHE.rows[i]
+        if row then
+            row:Hide()
+            row.playerName, row.playerData, row.playerKey = nil, nil, nil
+        end
+    end
+end
 
 
 
@@ -361,7 +400,7 @@ function SocialUI:CreateContainer()
     
     table.insert(FRIENDSFRAME_SUBFRAMES, "ReputationListSocialContainer")
     
-    self:CreateSettingsPanel(container)
+    self:CreateUnifiedSettingsPanel(container)
     
     local settingsBtn = CreateFrame("Button", nil, container)
     settingsBtn:SetSize(CONFIG.SETTINGS_BTN_SIZE, CONFIG.SETTINGS_BTN_SIZE)
@@ -450,14 +489,6 @@ function SocialUI:CreateContainer()
                 CACHE.container.scroll.scrollbar:SetValue(0)
             end
             
-            for i = CONFIG.VISIBLE_ROWS + 1, #CACHE.rows do
-                if CACHE.rows[i] then
-                    CACHE.rows[i]:Hide()
-                    CACHE.rows[i]:SetParent(nil)
-                    CACHE.rows[i] = nil
-                end
-            end
-            
             SocialUI:RefreshList()
         end
     end)
@@ -522,14 +553,7 @@ function SocialUI:CreateTabs(parent)
             STATE.currentTab = data.key
             SocialUI:UpdateTabAppearance()
             
-            for i = 1, #CACHE.rows do
-                if CACHE.rows[i] then
-                    CACHE.rows[i]:Hide()
-                    CACHE.rows[i]:SetParent(nil)
-                    CACHE.rows[i] = nil
-                end
-            end
-            CACHE.rows = {}
+            HideCachedRows()
             STATE.scrollOffset = 0
             if CACHE.container and CACHE.container.scroll and CACHE.container.scroll.scrollbar then
                 CACHE.container.scroll.scrollbar:SetValue(0)
@@ -730,6 +754,131 @@ function SocialUI:CreateSettingsPanel(parent)
     return panel
 end
 
+function SocialUI:CreateUnifiedSettingsPanel(parent)
+    if CACHE.unifiedSettingsPanel then return CACHE.unifiedSettingsPanel end
+
+    local panel = CreateFrame("Frame", nil, parent)
+    panel:SetPoint("TOPLEFT", CONFIG.SETTINGS_PANEL_LEFT, CONFIG.SETTINGS_PANEL_TOP)
+    panel:SetPoint("BOTTOMRIGHT", CONFIG.SETTINGS_PANEL_RIGHT, CONFIG.SETTINGS_PANEL_BOTTOM)
+    panel:Hide()
+
+    local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOP", 0, -8)
+    title:SetText(L["SETTINGS_TITLE"])
+    title:SetTextColor(1, 0.82, 0)
+
+    local scroll = CreateFrame("ScrollFrame", "ReputationListSocialSettingsScroll", panel, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 8, -36)
+    scroll:SetPoint("BOTTOMRIGHT", -28, 8)
+    local body = CreateFrame("Frame", nil, scroll)
+    body:SetSize(280, 1)
+    scroll:SetScrollChild(body)
+
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local range = self:GetVerticalScrollRange() or 0
+        local current = self:GetVerticalScroll() or 0
+        local nextValue = current - delta * 40
+        if nextValue < 0 then nextValue = 0 end
+        if nextValue > range then nextValue = range end
+        self:SetVerticalScroll(nextValue)
+    end)
+
+    local y = 0
+    local checks = {}
+    local function AddHeader(key)
+        y = y - 10
+        local fs = body:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("TOPLEFT", 4, y)
+        fs:SetText(L[key])
+        fs:SetTextColor(1, 0.82, 0)
+        y = y - 22
+    end
+    local function AddCheck(key, getter, setter)
+        local cb = CreateFrame("CheckButton", nil, body, "UICheckButtonTemplate")
+        cb:SetSize(22, 22)
+        cb:SetPoint("TOPLEFT", 8, y)
+        local text = cb:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        text:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+        text:SetPoint("RIGHT", body, "RIGHT", -6, 0)
+        text:SetJustifyH("LEFT")
+        text:SetText(L[key])
+        cb:SetScript("OnClick", function(self) setter(self:GetChecked() and true or false) end)
+        checks[#checks + 1] = { cb = cb, getter = getter }
+        y = y - 25
+    end
+    local function AddHint(key)
+        local fs = body:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        fs:SetPoint("TOPLEFT", 34, y)
+        fs:SetPoint("RIGHT", body, "RIGHT", -8, 0)
+        fs:SetJustifyH("LEFT")
+        fs:SetText(L[key])
+        y = y - 30
+    end
+
+    AddHeader("SET_SECTION_NOTIFICATIONS")
+    AddCheck("SET_AUTO_NOTIFY", function() return ReputationListDB.autoNotify end,
+        function(v) ReputationListDB.autoNotify = v; RL.autoNotify = v end)
+    AddCheck("SET_SELF_NOTIFY", function() return ReputationListDB.selfNotify end,
+        function(v) ReputationListDB.selfNotify = v; RL.selfNotify = v end)
+    AddCheck("SET_SOUND_POPUPS", function() return ReputationListDB.soundNotify end,
+        function(v) ReputationListDB.soundNotify = v; ReputationListDB.popupNotify = v; RL.soundNotify = v; RL.popupNotify = v end)
+    AddCheck("SET_FILTER_MESSAGES", function() return ReputationListDB.filterMessages end,
+        function(v) ReputationListDB.filterMessages = v; RL.filterMessages = v end)
+
+    AddHeader("SET_SECTION_PROTECTION")
+    AddCheck("SET_BLOCK_INVITES", function() return ReputationListDB.blockInvites end,
+        function(v) ReputationListDB.blockInvites = v; RL.blockInvites = v end)
+    AddCheck("SET_BLOCK_TRADE", function() return ReputationListDB.blockTrade end,
+        function(v) ReputationListDB.blockTrade = v; RL.blockTrade = v end)
+    AddCheck("SET_COLOR_CHAT", function() return ReputationListDB.colorLFG end,
+        function(v) ReputationListDB.colorLFG = v; RL.colorLFG = v end)
+
+    AddHeader("SET_SECTION_NAMEPLATES")
+    AddCheck("SET_ENABLED", function() return ReputationListDB.nameplateIcons and ReputationListDB.nameplateIcons.enabled end,
+        function(v) ReputationListDB.nameplateIcons = ReputationListDB.nameplateIcons or {}; ReputationListDB.nameplateIcons.enabled = v; if RL.Nameplates then RL.Nameplates:Toggle(v) end end)
+    AddCheck("SET_CUSTOM_ICONS", function() return ReputationListDB.nameplateIcons and ReputationListDB.nameplateIcons.useCustomIcons end,
+        function(v) ReputationListDB.nameplateIcons = ReputationListDB.nameplateIcons or {}; ReputationListDB.nameplateIcons.useCustomIcons = v end)
+
+    AddHeader("SET_SECTION_ONLINE")
+    AddCheck("SET_ENABLED", function() return ReputationListDB.onlineToast and ReputationListDB.onlineToast.enabled end,
+        function(v) ReputationListDB.onlineToast = ReputationListDB.onlineToast or {}; ReputationListDB.onlineToast.enabled = v end)
+    AddCheck("SET_SOUND", function() return ReputationListDB.onlineToast and ReputationListDB.onlineToast.sound end,
+        function(v) ReputationListDB.onlineToast = ReputationListDB.onlineToast or {}; ReputationListDB.onlineToast.sound = v end)
+    AddCheck("SET_WATCH_BLACKLIST", function() return ReputationListDB.onlineToast and ReputationListDB.onlineToast.watchBlacklist end,
+        function(v) ReputationListDB.onlineToast = ReputationListDB.onlineToast or {}; ReputationListDB.onlineToast.watchBlacklist = v end)
+    AddCheck("SET_WATCH_WHITELIST", function() return ReputationListDB.onlineToast and ReputationListDB.onlineToast.watchWhitelist end,
+        function(v) ReputationListDB.onlineToast = ReputationListDB.onlineToast or {}; ReputationListDB.onlineToast.watchWhitelist = v end)
+    AddHint("SET_ONLINE_HINT")
+
+    AddHeader("SET_SECTION_CHAT_FILTER")
+    AddCheck("SET_ENABLED", function() return ReputationListDB.wordFilter and ReputationListDB.wordFilter.enabled end,
+        function(v) ReputationListDB.wordFilter = ReputationListDB.wordFilter or {}; ReputationListDB.wordFilter.enabled = v end)
+    AddHint("SET_CHAT_FILTER_HINT")
+
+    AddHeader("SET_SECTION_TRANSFER")
+    local transfer = CreateFrame("Button", nil, body, "UIPanelButtonTemplate")
+    transfer:SetSize(190, 22)
+    transfer:SetPoint("TOPLEFT", 8, y)
+    transfer:SetText(L["SET_OPEN_TRANSFER"])
+    transfer:SetScript("OnClick", function() if RL.Transfer then RL.Transfer:ShowUI() end end)
+    y = y - 32
+
+    body:SetHeight(math.max(1, -y))
+    body:SetWidth(280)
+    panel.checks = checks
+    panel:SetScript("OnShow", function(self)
+        for i = 1, #self.checks do
+            local item = self.checks[i]
+            item.cb:SetChecked(item.getter() and true or false)
+        end
+    end)
+
+    CACHE.unifiedSettingsPanel = panel
+    CACHE.settingsPanel = panel
+    return panel
+end
+
 function SocialUI:ToggleSettings()
     if not CACHE.settingsPanel then return end
     
@@ -754,14 +903,7 @@ function SocialUI:ToggleSettings()
         if CACHE.container.searchBox then CACHE.container.searchBox:Hide() end
         CACHE.settingsPanel:Show()
         
-        for i = 1, #CACHE.rows do
-            if CACHE.rows[i] then
-                CACHE.rows[i]:Hide()
-                CACHE.rows[i]:SetParent(nil)
-                CACHE.rows[i] = nil
-            end
-        end
-        CACHE.rows = {}
+        HideCachedRows()
     end
 end
 
@@ -810,7 +952,6 @@ function SocialUI:CreateScrollFrame(parent)
             STATE.scrollOffset = newOffset
             SocialUI:UpdateVisibleRows()
             
-            collectgarbage("step", 100)
         end
     end)
     
@@ -1219,6 +1360,11 @@ function SocialUI:EditPlayer(playerName, currentNote)
     StaticPopup_Show("REPLIST_SOCIAL_EDIT")
 end
 
+local function UpdateIgnoreButton(targetButton, targetName)
+    local newIgnored = RL.IsInBlizzardIgnore(targetName)
+    targetButton:SetNormalTexture(newIgnored and "Interface\\FriendsFrame\\StatusIcon-Online" or "Interface\\FriendsFrame\\StatusIcon-Offline")
+end
+
 function SocialUI:ToggleIgnore(playerName, button)
     local ignored, ignoredName = RL.IsInBlizzardIgnore(playerName)
     
@@ -1236,18 +1382,7 @@ function SocialUI:ToggleIgnore(playerName, button)
         print("|cFF00FF00ReputationList:|r " .. playerName .. L["UI_BLACK"])
     end
     
-    local updateFrame = CreateFrame("Frame")
-    updateFrame.elapsed = 0
-    updateFrame.button = button
-    updateFrame.playerName = playerName
-    updateFrame:SetScript("OnUpdate", function(self, elapsed)
-        self.elapsed = self.elapsed + elapsed
-        if self.elapsed >= 0.1 then
-            self:SetScript("OnUpdate", nil)
-            local newIgnored = RL.IsInBlizzardIgnore(self.playerName)
-            self.button:SetNormalTexture(newIgnored and "Interface\\FriendsFrame\\StatusIcon-Online" or "Interface\\FriendsFrame\\StatusIcon-Offline")
-        end
-    end)
+    ScheduleDeferred(0.1, UpdateIgnoreButton, button, playerName)
 end
 
 function SocialUI:ShowReputationList()
@@ -1390,15 +1525,7 @@ local function HookRaidRoster()
     raidFrame:RegisterEvent("RAID_ROSTER_UPDATE")
     raidFrame:RegisterEvent("PARTY_MEMBERS_CHANGED")
     raidFrame:SetScript("OnEvent", function()
-        local updateFrame = CreateFrame("Frame")
-        updateFrame.elapsed = 0
-        updateFrame:SetScript("OnUpdate", function(self, elapsed)
-            self.elapsed = self.elapsed + elapsed
-            if self.elapsed >= 0.1 then
-                self:SetScript("OnUpdate", nil)
-                UpdateRaidMarks()
-            end
-        end)
+        ScheduleDeferred(0.1, UpdateRaidMarks)
     end)
 end
 
@@ -1432,6 +1559,24 @@ function SocialUI:Initialize()
     
     HookRaidRoster()
     HookGuildRoster()
+
+    local delayedMarkFrame = CreateFrame("Frame")
+    local delayedMarkUpdate
+    delayedMarkFrame:SetScript("OnUpdate", function(self, elapsed)
+        self.elapsed = self.elapsed + elapsed
+        if self.elapsed >= 0.1 then
+            self:Hide()
+            local fn = delayedMarkUpdate
+            delayedMarkUpdate = nil
+            if fn then fn() end
+        end
+    end)
+    delayedMarkFrame:Hide()
+    local function ScheduleMarkUpdate(callback)
+        delayedMarkUpdate = callback
+        delayedMarkFrame.elapsed = 0
+        delayedMarkFrame:Show()
+    end
     
     hooksecurefunc("FriendsFrame_OnShow", function()
         if CACHE.tab and FriendsFrame:IsShown() then
@@ -1462,43 +1607,25 @@ function SocialUI:Initialize()
             end
             
             if not isSelected then
-                for i = 1, #CACHE.rows do
-                    if CACHE.rows[i] then
-                        CACHE.rows[i]:Hide()
-                        CACHE.rows[i]:SetParent(nil)
-                        CACHE.rows[i] = nil
-                    end
-                end
-                CACHE.rows = {}
+                HideCachedRows()
                 STATE.scrollOffset = 0
-                collectgarbage("collect")
             end
         end
         
         local selectedTab = PanelTemplates_GetSelectedTab(FriendsFrame)
         if selectedTab == 3 then
-
-            local f = CreateFrame("Frame"); f.elapsed = 0; f:SetScript("OnUpdate", function(self, e) self.elapsed = self.elapsed + e; if self.elapsed >= 0.1 then self:SetScript("OnUpdate", nil); UpdateGuildMarks() end end)
+            ScheduleMarkUpdate(UpdateGuildMarks)
         elseif selectedTab == 2 then
-
-            local f = CreateFrame("Frame"); f.elapsed = 0; f:SetScript("OnUpdate", function(self, e) self.elapsed = self.elapsed + e; if self.elapsed >= 0.1 then self:SetScript("OnUpdate", nil); UpdateRaidMarks() end end)
+            ScheduleMarkUpdate(UpdateRaidMarks)
         end
     end)
     
     hooksecurefunc("FriendsFrame_OnHide", function()
 
-        for i = 1, #CACHE.rows do
-            if CACHE.rows[i] then
-                CACHE.rows[i]:Hide()
-                CACHE.rows[i]:SetParent(nil)
-                CACHE.rows[i] = nil
-            end
-        end
-        CACHE.rows = {}
+        HideCachedRows()
         
         STATE.scrollOffset = 0
         
-        collectgarbage("collect")
     end)
     
 end
