@@ -1,23 +1,71 @@
 # Changelog
 
-All notable changes to Reputation addon will be documented in this file.
+All notable changes to the Reputation List addon will be documented in this file.
+
+## [2.0] - 2026-08-01
+
+### Added
+
+- Completely redesigned unified interface for the default Blizzard UI and ElvUI.
+- Dedicated Blacklist, Whitelist, and Notelist tabs.
+- Advanced search, sorting, and filtering by class, race, tag, and ignore status.
+- Player tag system with quick tag filters.
+- **Who's Here?** tab for inspecting current and recently tracked group or raid members.
+- Global History tab with player search.
+- Synchronization of complete lists, selected list types, and individual player cards.
+- Incoming Suggestions tab for reviewing synchronized data before importing it.
+- Selective acceptance, skipping, and rejection of incoming entries.
+- Text and Base64 export/import formats.
+- Custom chat phrase filter with per-channel configuration and hide/show-only modes.
+- Reputation icons on player nameplates.
+- Online notifications for tracked Blacklist and Whitelist players.
+- Unified settings in the main addon window and the Social frame.
+- Armory/profile links, tags, individual export, synchronization, and forum export in player cards.
+- Full Russian and English localization for the new interface.
+
+### Changed
+
+- Replaced the separate Classic and ElvUI interfaces with one adaptive interface.
+- Expanded player cards and character history.
+- Improved integration with chat, guild, raid, mail, tooltips, and the Blizzard ignore list.
+- Improved export/import workflow and legacy data compatibility.
+- Improved support for databases containing hundreds or thousands of players.
+- Moved the primary addon settings into the redesigned interface.
+
+### Performance
+
+- Virtualized the main player list, History tab, and incoming synchronization list.
+- Reused visible interface rows instead of creating one frame per entry.
+- Added bounded caches for filters, counters, tags, and collected player entries.
+- Reduced temporary table, closure, tag-parsing, and string allocations.
+- Optimized rapid scrolling and tab switching.
+- Removed periodic forced full garbage collection while preserving diagnostic memory commands.
+
+### Fixed
+
+- Fixed uncontrolled memory growth during active list scrolling.
+- Fixed excessive temporary memory growth while rapidly switching tabs.
+- Fixed scrolling in the Social-frame settings panel.
+- Fixed chat-filter phrases extending beyond the addon window.
+- Fixed History and Incoming Suggestions rows extending beyond the bottom of the main window.
+- Fixed multiple interface layout and visual issues.
+- Fixed several data refresh, cache invalidation, and localization issues.
 
 ## [1.80] - 2026-07-19
-New Features:
 
-Added "History" tab to the character card.
-Tracks date and author of player addition
-Records the data the player was added with
-Shows the last encounter date with the player
-Maintains history of character data changes (limited to last 5 entries)
+### Added
 
+- Added a History tab to the character card.
+- Added tracking of the date and author of player additions.
+- Added storage of the player data available at the time of addition.
+- Added display of the last encounter date with a player.
+- Added character data change history, limited to the five most recent entries.
 
-Fixes & Improvements:
+### Fixed and improved
 
-Multiple graphical fixes
-Stability and functionality improvements
-Expanded and improved English localization
-
+- Multiple graphical fixes.
+- Stability and functionality improvements.
+- Expanded and improved English localization.
 
 ## [1.65b] - 2026-02-02
 
