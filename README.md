@@ -241,19 +241,26 @@ Screenshots of the redesigned 2.0 interface will be added here.
 
 ## Changelog
 
-### Version 2.0
+### Version 2.1
 
-- Completely redesigned unified interface
-- Added tags and advanced filtering
-- Added list and individual player synchronization
-- Added incoming suggestion review
-- Added chat phrase filtering
-- Added nameplate icons and online notifications
-- Expanded player cards and history
-- Added unified settings to the main and Social interfaces
-- Added full Russian and English UI localization
-- Improved memory usage, scrolling, and large-list performance
-- Removed obsolete separate Classic and ElvUI interface files
+Fixed:
+
+Card sync: tags, history, and Armory link are now transferred
+Fixed a bug where sending a new player's card would repeat the previous send
+Long tags in the list no longer overflow their colored badge - they're now truncated with an ellipsis
+Fixed text-format export/import bug
+Character card: the background under the "History" tab now adjusts to the text width, matching the "Note" tab
+Added English translation for history entries (Armory link updated, note changed, tag removed, moved between lists, guild/race/class changed, added from group, no note)
+The Blacklist and Whitelist export/import buttons in the transfer window now work only with their respective list instead of all lists
+
+Added:
+
+Context menu item (right-click on a player) - move to another list: Blacklist / Whitelist / Notelist
+The add-player form now defaults to the NL (Notelist) list
+Settings: interface language toggle, with the choice saved (requires a relog)
+Settings: interface design toggle (Classic / ElvUI), with the choice saved (requires a relog)
+The addon now defaults to English if the game client's language isn't Russian
+Main addon window resizing via the bottom-right corner, with all content scaling to fit and the chosen scale saved
 
 See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
