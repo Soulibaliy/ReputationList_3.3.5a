@@ -2,7 +2,7 @@
 
 All notable changes to the Reputation List addon will be documented in this file.
 
-## [2.0] - 2026-08-16
+## [2.1] - 2026-08-16
 
 ### Fixed:
 
