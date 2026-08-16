@@ -2,7 +2,7 @@
 
 Комплексный аддон для ведения чёрного и белого списков, заметок об игроках, отслеживания изменений, фильтрации, синхронизации и автоматических уведомлений.
 
-![Версия](https://img.shields.io/badge/версия-2.0-blue)
+![Версия](https://img.shields.io/badge/версия-2.1-blue)
 ![WoW](https://img.shields.io/badge/WoW-3.3.5a-orange)
 ![Лицензия](https://img.shields.io/badge/лицензия-MIT-green)
 
