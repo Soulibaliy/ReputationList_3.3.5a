@@ -14,6 +14,8 @@ local RU = {
     V2_COL_NAME = "Имя", V2_COL_CLASS = "Класс", V2_COL_RACE = "Раса", V2_COL_GUILD = "Гильдия",
     V2_COL_TAGS = "Теги", V2_COL_STATUS = "Статус", V2_COL_DATE = "Дата",
     V2_OPEN_CARD = "Открыть карточку", V2_EDIT_NOTE = "Редактировать заметку", V2_DELETE_LIST = "Удалить из списка",
+    V2_MOVE_TO_BLACKLIST = "Перенести в Blacklist", V2_MOVE_TO_WHITELIST = "Перенести в Whitelist", V2_MOVE_TO_NOTELIST = "Перенести в Notelist",
+    V2_MOVED_TO_LIST = "|cFF00FF00%s|r перенесён(а) в %s", V2_HIST_MOVED = "Перенесён(а) из %s в %s",
     V2_IGNORE = "Игнор", V2_UNIGNORE = "Убрать", V2_NAME = "Имя", V2_NOTE = "Заметка", V2_ADD = "Добавить",
     V2_ENTER_NAME = "введите имя игрока", V2_IMPORT = "Импорт", V2_EXPORT = "Экспорт",
     V2_TRANSFER_MISSING = "модуль экспорта/импорта не загружен",
@@ -108,6 +110,8 @@ local EN = {
     V2_COL_NAME = "Name", V2_COL_CLASS = "Class", V2_COL_RACE = "Race", V2_COL_GUILD = "Guild",
     V2_COL_TAGS = "Tags", V2_COL_STATUS = "Status", V2_COL_DATE = "Date",
     V2_OPEN_CARD = "Open card", V2_EDIT_NOTE = "Edit note", V2_DELETE_LIST = "Remove from list",
+    V2_MOVE_TO_BLACKLIST = "Move to Blacklist", V2_MOVE_TO_WHITELIST = "Move to Whitelist", V2_MOVE_TO_NOTELIST = "Move to Notelist",
+    V2_MOVED_TO_LIST = "|cFF00FF00%s|r moved to %s", V2_HIST_MOVED = "Moved from %s to %s",
     V2_IGNORE = "Ignore", V2_UNIGNORE = "Unignore", V2_NAME = "Name", V2_NOTE = "Note", V2_ADD = "Add",
     V2_ENTER_NAME = "enter a player name", V2_IMPORT = "Import", V2_EXPORT = "Export",
     V2_TRANSFER_MISSING = "export/import module is not loaded",
@@ -189,5 +193,11 @@ local EN = {
     SYNC_DISABLED = "Synchronization is disabled in settings",
 }
 
-local source = RL:GetCurrentLocale() == "ruRU" and RU or EN
-for key, value in pairs(source) do RL.L[key] = value end
+local function ApplyV2Strings()
+    local source = RL:GetCurrentLocale() == "ruRU" and RU or EN
+    for key, value in pairs(source) do RL.L[key] = value end
+end
+ApplyV2Strings()
+
+RL.SettingsReapplyCallbacks = RL.SettingsReapplyCallbacks or {}
+table.insert(RL.SettingsReapplyCallbacks, ApplyV2Strings)

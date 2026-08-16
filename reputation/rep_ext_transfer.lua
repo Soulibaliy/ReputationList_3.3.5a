@@ -160,6 +160,9 @@ function T:Export(listTypes)
                     tags = entry.tags,
                     addedDate = entry.addedDate,
                     addedBy = entry.addedBy,
+                    armoryLink = entry.armoryLink,
+                    history = entry.history,
+                    lastUpdateDate = entry.lastUpdateDate,
                 }
             end
             payload.lists[listType] = copy
@@ -168,6 +171,7 @@ function T:Export(listTypes)
 
     local serialized = Serialize(payload)
     local encoded = base64_encode(serialized)
+    collectgarbage("collect")
     return FORMAT_TAG .. encoded
 end
 
@@ -197,6 +201,9 @@ function T:ExportEntry(listType, key)
                     tags = entry.tags,
                     addedDate = entry.addedDate,
                     addedBy = entry.addedBy,
+                    armoryLink = entry.armoryLink,
+                    history = entry.history,
+                    lastUpdateDate = entry.lastUpdateDate,
                 }
             }
         }
@@ -216,6 +223,12 @@ end
 
 local function FindKeyByGuid(targetList, guid)
     if not guid or guid == "" then return nil end
+    if RL.FindByGUID then
+        local data, key = RL.FindByGUID(guid)
+        if data and key and targetList[key] == data then
+            return key
+        end
+    end
     for existingKey, existingEntry in pairs(targetList) do
         if existingEntry.guid and existingEntry.guid == guid then
             return existingKey
@@ -224,44 +237,87 @@ local function FindKeyByGuid(targetList, guid)
     return nil
 end
 
+local MAX_MERGED_HISTORY = 20
+
+local function MergeHistory(existingHistory, incomingHistory)
+    if type(incomingHistory) ~= "table" or #incomingHistory == 0 then
+        return existingHistory
+    end
+
+    local merged = {}
+    local seen = {}
+    for _, h in ipairs(existingHistory or {}) do
+        local mkey = tostring(h.date) .. "|" .. tostring(h.by) .. "|" .. tostring(h.change)
+        if not seen[mkey] then
+            seen[mkey] = true
+            merged[#merged + 1] = h
+        end
+    end
+    for _, h in ipairs(incomingHistory) do
+        if type(h) == "table" then
+            local mkey = tostring(h.date) .. "|" .. tostring(h.by) .. "|" .. tostring(h.change)
+            if not seen[mkey] then
+                seen[mkey] = true
+                merged[#merged + 1] = h
+            end
+        end
+    end
+
+    table.sort(merged, function(a, b)
+        return T:ParseDateSortable(a.date) > T:ParseDateSortable(b.date)
+    end)
+    for i = #merged, MAX_MERGED_HISTORY + 1, -1 do
+        table.remove(merged, i)
+    end
+    return merged
+end
+
 function T:MergeEntry(targetList, key, entry, mode)
     if type(entry) ~= "table" or not entry.name then return "skipped" end
 
     local existingKey = FindKeyByGuid(targetList, entry.guid) or (targetList[key] and key or nil)
     local existing = existingKey and targetList[existingKey]
 
-    local result
+    local result, overwriteCore
     if not existing then
-        result = "added"
+        result, overwriteCore = "added", true
         existingKey = key
     elseif mode == "overwrite" then
-        result = "overwritten"
+        result, overwriteCore = "overwritten", true
     elseif mode == "newest" then
-        local incomingTime = self:ParseDateSortable(entry.addedDate)
-        local existingTime = self:ParseDateSortable(existing.addedDate)
+        local incomingTime = self:ParseDateSortable(entry.lastUpdateDate or entry.addedDate)
+        local existingTime = self:ParseDateSortable(existing.lastUpdateDate or existing.addedDate)
         if incomingTime > existingTime then
-            result = "overwritten"
+            result, overwriteCore = "overwritten", true
         else
-            return "skipped"
+            result, overwriteCore = "skipped", false
         end
-    else 
-        return "skipped"
+    else
+        result, overwriteCore = "skipped", false
+    end
+
+    if not existing and not overwriteCore then
+        return result
     end
 
     local newEntry = existing or {}
-    newEntry.name = entry.name
-    newEntry.note = entry.note or newEntry.note
-    newEntry.guid = entry.guid or newEntry.guid
-    newEntry.class = entry.class or newEntry.class
-    newEntry.race = entry.race or newEntry.race
-    newEntry.level = entry.level or newEntry.level
-    newEntry.guild = entry.guild or newEntry.guild
-    newEntry.faction = entry.faction or newEntry.faction
+    if overwriteCore then
+        newEntry.name = entry.name
+        newEntry.note = entry.note or newEntry.note
+        newEntry.guid = entry.guid or newEntry.guid
+        newEntry.class = entry.class or newEntry.class
+        newEntry.race = entry.race or newEntry.race
+        newEntry.level = entry.level or newEntry.level
+        newEntry.guild = entry.guild or newEntry.guild
+        newEntry.faction = entry.faction or newEntry.faction
+        newEntry.addedDate = entry.addedDate or newEntry.addedDate or date("%d.%m.%Y %H:%M")
+        newEntry.addedBy = newEntry.addedBy or entry.addedBy or "Sync"
+        newEntry.key = existingKey
+    end
     newEntry.tags = entry.tags or newEntry.tags
-    newEntry.addedDate = entry.addedDate or newEntry.addedDate or date("%d.%m.%Y %H:%M")
-    newEntry.addedBy = newEntry.addedBy or entry.addedBy or "Sync"
-    newEntry.key = existingKey
-    newEntry.history = newEntry.history or {}
+    newEntry.armoryLink = entry.armoryLink or newEntry.armoryLink
+    newEntry.history = MergeHistory(newEntry.history, entry.history) or newEntry.history or {}
+    newEntry.lastUpdateDate = entry.lastUpdateDate or newEntry.lastUpdateDate
 
     targetList[existingKey] = newEntry
     return result
@@ -305,6 +361,8 @@ function T:ImportPayload(payload, mode, listFilter)
 
     local stats = { added = 0, skipped = 0, overwritten = 0 }
 
+    if RL.BuildGUIDIndex then RL.BuildGUIDIndex() end
+
     for listType, entries in pairs(payload.lists) do
         if (listType == "blacklist" or listType == "whitelist" or listType == "notelist")
             and (not listFilter or listFilter[listType]) then
@@ -319,7 +377,9 @@ function T:ImportPayload(payload, mode, listFilter)
     end
 
     if RL.InvalidateCache then RL.InvalidateCache() end
+    if RL.BuildGUIDIndex then RL.BuildGUIDIndex() end
     if RL.SaveSettings then RL:SaveSettings() end
+    collectgarbage("collect")
 
     return true, stats
 end
@@ -333,6 +393,8 @@ function T:ImportSelectedEntries(selections, mode)
 
     local stats = { added = 0, skipped = 0, overwritten = 0 }
 
+    if RL.BuildGUIDIndex then RL.BuildGUIDIndex() end
+
     for _, sel in ipairs(selections) do
         realmData[sel.listType] = realmData[sel.listType] or {}
         local result = self:MergeEntry(realmData[sel.listType], sel.key, sel.entry, mode)
@@ -340,17 +402,19 @@ function T:ImportSelectedEntries(selections, mode)
     end
 
     if RL.InvalidateCache then RL.InvalidateCache() end
+    if RL.BuildGUIDIndex then RL.BuildGUIDIndex() end
     if RL.SaveSettings then RL:SaveSettings() end
+    collectgarbage("collect")
 
     return true, stats
 end
 
-function T:Import(importString, mode)
+function T:Import(importString, mode, listFilter)
     local payload, err = self:DecodePayload(importString)
     if not payload then
         return false, err
     end
-    return self:ImportPayload(payload, mode)
+    return self:ImportPayload(payload, mode, listFilter)
 end
 
 local transferFrame
@@ -455,14 +519,21 @@ local function ImportLegacyElitistGroup(data)
     return imported, skipped
 end
 
-local function ExportLegacyText(callback)
+local function ExportLegacyText(callback, listTypes)
     if not (RL.UICommon and RL.UICommon.AsyncSerialize) then
         callback(nil, L["TR_ERR_COMMON"])
         return
     end
     local normalizedRealm = RL.NormalizeRealm(GetRealmName())
     local realmData = RL:GetRealmData()
-    local data = { realms = { [normalizedRealm] = realmData or {} } }
+    local filteredData = {}
+    if realmData then
+        listTypes = listTypes or { "blacklist", "whitelist", "notelist" }
+        for _, listType in ipairs(listTypes) do
+            filteredData[listType] = realmData[listType]
+        end
+    end
+    local data = { realms = { [normalizedRealm] = filteredData } }
     RL.UICommon.AsyncSerialize(data, function(resultString)
         callback(resultString)
     end, L)
@@ -507,6 +578,14 @@ local function ImportLegacyText(text)
     elseif format == "ElitistGroup" then
         imported, skipped = ImportLegacyElitistGroup(result)
     end
+
+    if RL.InvalidateCache then RL.InvalidateCache() end
+    if RL.BuildGUIDIndex then RL.BuildGUIDIndex() end
+    if RL.SaveSettings then RL:SaveSettings() end
+    if RL.UI2 and RL.UI2.Refresh and RL.UI2.frame and RL.UI2.frame:IsShown() then
+        RL.UI2:Refresh()
+    end
+    collectgarbage("collect")
 
     return true, { added = imported, skipped = skipped }
 end
@@ -618,14 +697,14 @@ local function CreateTransferFrame()
     end
 
     local statusText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    statusText:SetPoint("BOTTOMLEFT", 20, 55)
-    statusText:SetPoint("BOTTOMRIGHT", -20, 55)
+    statusText:SetPoint("BOTTOMLEFT", 20, 76)
+    statusText:SetPoint("BOTTOMRIGHT", -20, 76)
     statusText:SetJustifyH("LEFT")
     f.statusText = statusText
 
     local function MakeExportButton(label, listTypes, xOffset)
         local btn = S and S.CreateButton(f, 110, 22, label) or CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-        btn:SetPoint("BOTTOMLEFT", xOffset, 20)
+        btn:SetPoint("BOTTOMLEFT", xOffset, 48)
         if not S then btn:SetText(label) end
         btn:SetScript("OnClick", function()
             if f.exportAsText then
@@ -639,7 +718,7 @@ local function CreateTransferFrame()
                     else
                         f.statusText:SetText(string.format(L["TR_EXPORT_ERROR_DETAIL"], tostring(err)))
                     end
-                end)
+                end, listTypes)
                 return
             end
             local str = T:Export(listTypes)
@@ -656,21 +735,22 @@ local function CreateTransferFrame()
     end
 
     MakeExportButton(L["TR_EXPORT_ALL"], nil, 20)
-    MakeExportButton("Blacklist", { "blacklist" }, 140)
-    MakeExportButton("Whitelist", { "whitelist" }, 260)
+    MakeExportButton("Blacklist", { "blacklist" }, 130)
+    MakeExportButton("Whitelist", { "whitelist" }, 240)
+    MakeExportButton("Notelist", { "notelist" }, 350)
 
-    local importBtn = S and S.CreateButton(f, 110, 22, L["TR_IMPORT"], "primary") or CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    importBtn:SetPoint("BOTTOMRIGHT", -20, 20)
-    if not S then importBtn:SetText(L["TR_IMPORT"]) end
-    importBtn:SetScript("OnClick", function()
+    local function DoImport(listFilter)
         local text = editBox:GetText()
         if text and text:sub(1, #FORMAT_TAG) == FORMAT_TAG then
 
-            local success, stats = T:Import(text, "merge")
+            local success, stats = T:Import(text, "merge", listFilter)
             if success then
                 f.statusText:SetText(string.format(
                     L["TR_IMPORTED_BASE64"],
                     stats.added, stats.skipped))
+                if RL.UI2 and RL.UI2.Refresh and RL.UI2.frame and RL.UI2.frame:IsShown() then
+                    RL.UI2:Refresh()
+                end
             else
                 f.statusText:SetText(string.format(L["TR_IMPORT_ERROR"], tostring(stats)))
             end
@@ -685,7 +765,20 @@ local function CreateTransferFrame()
                 f.statusText:SetText(string.format(L["TR_IMPORT_ERROR"], tostring(stats)))
             end
         end
-    end)
+    end
+
+    local function MakeImportButton(label, listFilter, xOffset)
+        local btn = S and S.CreateButton(f, 110, 22, label, "primary") or CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+        btn:SetPoint("BOTTOMLEFT", xOffset, 20)
+        if not S then btn:SetText(label) end
+        btn:SetScript("OnClick", function() DoImport(listFilter) end)
+        return btn
+    end
+
+    MakeImportButton(L["TR_IMPORT"], nil, 20)
+    MakeImportButton("Blacklist", { blacklist = true }, 130)
+    MakeImportButton("Whitelist", { whitelist = true }, 240)
+    MakeImportButton("Notelist", { notelist = true }, 350)
 
     return f
 end

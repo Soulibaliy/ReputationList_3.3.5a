@@ -1,6 +1,6 @@
 ReputationList = ReputationList or {}
 local RL = ReputationList
-RL.version = "2.0"
+RL.version = "2.1"
 if not RL.SanitizeString then
     error("Security module not loaded! Check .toc file order.")
 end
@@ -15,6 +15,14 @@ RL.shownCards = {}
 RL.nameCache = {}
 RL.nameCacheAccess = {}
 RL.maxNameCache = 50
+
+function RL.IsElvUI()
+    local mode = ReputationListDB and ReputationListDB.interfaceMode
+    if mode == "classic" then return false end
+    if mode == "elvui" then return true end
+    -- "auto" (or no saved preference yet): follow whether ElvUI is actually loaded
+    return _G.ElvUI ~= nil
+end
 
 local TOOLTIP_NOTE_MAX_CHARS = 60
 function RL.TruncateNoteForTooltip(str, maxChars)
@@ -870,7 +878,7 @@ function RL:AddPlayer(args)
     local note = table.concat({unpack(args,4)}, " ")
     
     note = RL.SanitizeString(note, 200)
-    if note == "" then note = "Без заметки" end
+    if note == "" then note = L["UI_F_N"] end
     local targetList, listName
     local realmData = RL:GetRealmData()
     
@@ -1199,6 +1207,38 @@ function RL:AddPlayersBatch(players, listType)
     
     print(string.format("|cFF00FF00[RepList]|r " .. L["PLAYERS_ADDED"], added, listType))
     return true
+end
+
+function RL:MoveEntryToList(fromListType, key, toListType)
+    if not fromListType or not key or not toListType then return false end
+    if fromListType == toListType then return false end
+
+    local realmData = RL:GetRealmData()
+    if not realmData then return false end
+
+    local fromList = realmData[fromListType]
+    local entry = fromList and fromList[key]
+    if not entry then return false end
+
+    realmData[toListType] = realmData[toListType] or {}
+    local toList = realmData[toListType]
+
+    local fromLabel = ({ blacklist = "Blacklist", whitelist = "Whitelist", notelist = "Notelist" })[fromListType] or fromListType
+    local toLabel = ({ blacklist = "Blacklist", whitelist = "Whitelist", notelist = "Notelist" })[toListType] or toListType
+
+    fromList[key] = nil
+    toList[key] = entry
+
+    RL.AddHistoryRecord(entry, string.format(L["V2_HIST_MOVED"] or "Moved from %s to %s", fromLabel, toLabel))
+
+    if entry.guid and RL.UpdateGUIDIndex then
+        RL.UpdateGUIDIndex(entry.guid, toListType, key)
+    end
+
+    RL.InvalidateCache()
+    RL:SaveSettings()
+
+    return true, toLabel
 end
 
 function RL:RemovePlayer(listType, playerName)

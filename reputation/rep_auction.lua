@@ -11,12 +11,13 @@ local CACHE = {
 }
 
 local useElvUI = false
-if ElvUI then
-    local E, _, _, _, _ = unpack(ElvUI)
-    if E then
-        useElvUI = true
-    end
+local function ApplyInterfaceMode()
+    useElvUI = RL.IsElvUI and RL.IsElvUI() or false
 end
+ApplyInterfaceMode()
+
+RL.SettingsReapplyCallbacks = RL.SettingsReapplyCallbacks or {}
+table.insert(RL.SettingsReapplyCallbacks, ApplyInterfaceMode)
 
 local L = ReputationList.L or ReputationListLocale
 

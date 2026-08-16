@@ -8,16 +8,22 @@ if not RL or not RL.L then return end
 
 local L = RL.L
 
-L["UI_WHO_HERE"] = "Кто здесь?"
-L["UI_WHO_HERE_TT"] = "Показать игроков в текущей группе/рейде.\nИгроки из списков будут выделены соответствующим цветом."
-L["UI_NOT_IN_GROUP"] = "Вы не находитесь в группе или рейде!"
-L["UI_ADDED_FROM_GROUP"] = "Добавлен из группы"
+local function ApplyWhoHereStrings()
+    L["UI_WHO_HERE"] = "Кто здесь?"
+    L["UI_WHO_HERE_TT"] = "Показать игроков в текущей группе/рейде.\nИгроки из списков будут выделены соответствующим цветом."
+    L["UI_NOT_IN_GROUP"] = "Вы не находитесь в группе или рейде!"
+    L["UI_ADDED_FROM_GROUP"] = "Добавлен из группы"
 
-if GetLocale() == "enUS" or GetLocale() == "enGB" then
-    L["UI_WHO_HERE"] = "Who's Here?"
-    L["UI_WHO_HERE_TT"] = "Show players in current group/raid.\nPlayers from lists will be highlighted with corresponding color."
-    L["UI_NOT_IN_GROUP"] = "You are not in a group or raid!"
-    L["UI_ADDED_FROM_GROUP"] = "Added from group"
+    if RL:GetCurrentLocale() == "enUS" then
+        L["UI_WHO_HERE"] = "Who's Here?"
+        L["UI_WHO_HERE_TT"] = "Show players in current group/raid.\nPlayers from lists will be highlighted with corresponding color."
+        L["UI_NOT_IN_GROUP"] = "You are not in a group or raid!"
+        L["UI_ADDED_FROM_GROUP"] = "Added from group"
+    end
 end
+ApplyWhoHereStrings()
+
+RL.SettingsReapplyCallbacks = RL.SettingsReapplyCallbacks or {}
+table.insert(RL.SettingsReapplyCallbacks, ApplyWhoHereStrings)
 
 print("|cFF00FF00ReputationList:|r Additional localization for 'Who's Here?' loaded")

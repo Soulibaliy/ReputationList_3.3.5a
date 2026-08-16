@@ -79,9 +79,8 @@ local function SetShownCompat(widget, shown)
 end
 
 local function IsElvUI()
-    return _G.ElvUI ~= nil
+    return RL.IsElvUI()
 end
-RL.IsElvUI = IsElvUI
 
 local function FixScale(frame)
     if not IsElvUI() then return end
@@ -91,6 +90,75 @@ local function FixScale(frame)
     end
 end
 RL.FixElvUIScale = FixScale
+
+local MIN_USER_SCALE, MAX_USER_SCALE = 0.6, 1.6
+
+local function ApplyUserScale(frame, userScale)
+    userScale = math.max(MIN_USER_SCALE, math.min(MAX_USER_SCALE, userScale or 1))
+    frame._userScale = userScale
+    frame:SetScale((frame._elvBaseScale or 1) * userScale)
+end
+
+local function CreateResizeGrip(f)
+    f._elvBaseScale = f:GetScale()
+
+    local savedScale = (ReputationListDB and ReputationListDB.v2Scale) or 1
+    ApplyUserScale(f, savedScale)
+
+    f:SetResizable(true)
+    if f.SetMinResize then f:SetMinResize(C.FRAME_W * MIN_USER_SCALE, C.FRAME_H * MIN_USER_SCALE) end
+    if f.SetMaxResize then f:SetMaxResize(C.FRAME_W * MAX_USER_SCALE, C.FRAME_H * MAX_USER_SCALE) end
+
+    local grip = CreateFrame("Button", nil, f)
+    grip:SetSize(16, 16)
+    grip:SetPoint("BOTTOMRIGHT", -2, 2)
+    grip:SetFrameLevel(f:GetFrameLevel() + 10)
+
+    for i = 1, 3 do
+        local line = grip:CreateTexture(nil, "OVERLAY")
+        line:SetTexture("Interface\\Buttons\\WHITE8X8")
+        line:SetVertexColor(PAL.bronze[1], PAL.bronze[2], PAL.bronze[3], 0.9)
+        line:SetSize(9 - i * 2, 2)
+        line:SetPoint("BOTTOMRIGHT", -3, 3 + (i - 1) * 4)
+        grip["line" .. i] = line
+    end
+
+    grip:SetScript("OnEnter", function(self)
+        for i = 1, 3 do
+            self["line" .. i]:SetVertexColor(PAL.gold[1], PAL.gold[2], PAL.gold[3], 1)
+        end
+    end)
+    grip:SetScript("OnLeave", function(self)
+        if self.dragging then return end
+        for i = 1, 3 do
+            self["line" .. i]:SetVertexColor(PAL.bronze[1], PAL.bronze[2], PAL.bronze[3], 0.9)
+        end
+    end)
+
+    grip:SetScript("OnMouseDown", function(self, button)
+        if button ~= "LeftButton" then return end
+        self.dragging = true
+        f:StartSizing("BOTTOMRIGHT")
+    end)
+
+    grip:SetScript("OnMouseUp", function(self)
+        if not self.dragging then return end
+        self.dragging = false
+        f:StopMovingOrSizing()
+
+        local newScale = f:GetWidth() / C.FRAME_W
+        f:SetSize(C.FRAME_W, C.FRAME_H)
+        ApplyUserScale(f, newScale)
+        ReputationListDB.v2Scale = f._userScale
+
+        for i = 1, 3 do
+            self["line" .. i]:SetVertexColor(PAL.bronze[1], PAL.bronze[2], PAL.bronze[3], 0.9)
+        end
+    end)
+
+    f.resizeGrip = grip
+    return grip
+end
 
 local BUTTON_FILL = {
     default = { PAL.bg3[1], PAL.bg3[2], PAL.bg3[3], 0.9 },
@@ -723,17 +791,19 @@ local function CreateHeader(f)
     close:SetScript("OnClick", function() f:Hide() end)
 end
 
-local TABS = {
-    { id = "list",       label = L["V2_TAB_LIST"] },
-    { id = "whitelist",  label = "Whitelist" },
-    { id = "blacklist",  label = "Blacklist" },
-    { id = "notelist",   label = "Notelist" },
-    { id = "whohere",    label = L["V2_TAB_WHO"] },
-    { id = "history",    label = L["V2_TAB_HISTORY"] },
-    { id = "sync",       label = L["V2_TAB_SYNC"] },
-    { id = "chatfilter", label = L["V2_TAB_CHAT_FILTER"] },
-    { id = "settings",   label = L["V2_TAB_SETTINGS"] },
-}
+local function GetTabs()
+    return {
+        { id = "list",       label = L["V2_TAB_LIST"] },
+        { id = "whitelist",  label = "Whitelist" },
+        { id = "blacklist",  label = "Blacklist" },
+        { id = "notelist",   label = "Notelist" },
+        { id = "whohere",    label = L["V2_TAB_WHO"] },
+        { id = "history",    label = L["V2_TAB_HISTORY"] },
+        { id = "sync",       label = L["V2_TAB_SYNC"] },
+        { id = "chatfilter", label = L["V2_TAB_CHAT_FILTER"] },
+        { id = "settings",   label = L["V2_TAB_SETTINGS"] },
+    }
+end
 
 local TAB_WIDTH = 66
 
@@ -764,7 +834,7 @@ local function CreateTabs(f)
     tabBarBg:SetPoint("TOPRIGHT", -8, -(C.HEADER_H))
     tabBarBg:SetHeight(C.TABBAR_H + 4)
 
-    for _, t in ipairs(TABS) do
+    for _, t in ipairs(GetTabs()) do
         local b = CreateFrame("Button", nil, f)
         b:SetSize(TAB_WIDTH, C.TABBAR_H - 2)
         b:SetPoint("TOPLEFT", x, -(C.HEADER_H + 2))
@@ -817,14 +887,16 @@ local function CreateTabs(f)
     end
 end
 
-local QUICK_FILTERS = {
-    { id = "all",       label = L["V2_ALL"],                 real = true },
-    { id = "blacklist", label = "Blacklist",            real = true, icon = "skull_icon.tga" },
-    { id = "whitelist", label = "Whitelist",            real = true, icon = "hands_icon.tga" },
-    { id = "notelist",  label = "Notelist",             real = true, icon = "notelist_icon.tga" },
-    { id = "proposed",  label = L["V2_PROPOSED"],           real = true },
-    { id = "tagged",    label = L["V2_TAGGED"],              real = true },
-}
+local function GetQuickFilters()
+    return {
+        { id = "all",       label = L["V2_ALL"],                 real = true },
+        { id = "blacklist", label = "Blacklist",            real = true, icon = "skull_icon.tga" },
+        { id = "whitelist", label = "Whitelist",            real = true, icon = "hands_icon.tga" },
+        { id = "notelist",  label = "Notelist",             real = true, icon = "notelist_icon.tga" },
+        { id = "proposed",  label = L["V2_PROPOSED"],           real = true },
+        { id = "tagged",    label = L["V2_TAGGED"],              real = true },
+    }
+end
 
 local function CreateSidebar(f)
     local side = CreateFrame("Frame", nil, f)
@@ -853,7 +925,7 @@ local function CreateSidebar(f)
 
     side.filterButtons = {}
     local y = -46
-    for _, qf in ipairs(QUICK_FILTERS) do
+    for _, qf in ipairs(GetQuickFilters()) do
         local b = CreateFrame("Button", nil, side)
         b:SetSize(C.SIDEBAR_W - 8, 20)
         b:SetPoint("TOPLEFT", 2, y)
@@ -971,6 +1043,39 @@ local function ColorForTag(tagName)
     local hash = 0
     for i = 1, #tagName do hash = hash + tagName:byte(i) end
     return TAG_FALLBACK_PALETTE[(hash % #TAG_FALLBACK_PALETTE) + 1]
+end
+
+local TAG_CHIP_MAX_CHARS = 6
+
+local function Utf8Len(str)
+    local len = 0
+    for i = 1, #str do
+        local b = str:byte(i)
+        if b < 0x80 or b >= 0xC0 then
+            len = len + 1
+        end
+    end
+    return len
+end
+
+local function TruncateTagChipText(str, maxChars)
+    local charCount = 0
+    local cutByte = nil
+    for i = 1, #str do
+        local b = str:byte(i)
+        if b < 0x80 or b >= 0xC0 then
+            charCount = charCount + 1
+            if charCount > maxChars then
+                cutByte = i - 1
+                break
+            end
+        end
+    end
+    if not cutByte then return str end
+    while cutByte > 1 and str:byte(cutByte) >= 0x80 and str:byte(cutByte) < 0xC0 do
+        cutByte = cutByte - 1
+    end
+    return string.sub(str, 1, cutByte) .. ".."
 end
 
 local SIDEBAR_TAG_NAMES = {}
@@ -1124,16 +1229,18 @@ local function CreateFilterBar(f)
     return bar
 end
 
-local COLUMNS = {
-    { key = "name",   label = L["V2_COL_NAME"],     width = 91,  sortable = true },
-    { key = "class",  label = L["V2_COL_CLASS"],   width = 44,  sortable = false },
-    { key = "race",   label = L["V2_COL_RACE"],    width = 80,  sortable = false },
-    { key = "guild",  label = L["V2_COL_GUILD"], width = 77,  sortable = false },
-    { key = "tags",   label = L["V2_COL_TAGS"],    width = 150, sortable = false },
-    { key = "status", label = L["V2_COL_STATUS"], width = 55,  sortable = false },
-    { key = "date",   label = L["V2_COL_DATE"],    width = 75,  sortable = true },
-    { key = "ignore", label = "",        width = 60,  sortable = false },
-}
+local function GetColumns()
+    return {
+        { key = "name",   label = L["V2_COL_NAME"],     width = 91,  sortable = true },
+        { key = "class",  label = L["V2_COL_CLASS"],   width = 44,  sortable = false },
+        { key = "race",   label = L["V2_COL_RACE"],    width = 80,  sortable = false },
+        { key = "guild",  label = L["V2_COL_GUILD"], width = 77,  sortable = false },
+        { key = "tags",   label = L["V2_COL_TAGS"],    width = 150, sortable = false },
+        { key = "status", label = L["V2_COL_STATUS"], width = 55,  sortable = false },
+        { key = "date",   label = L["V2_COL_DATE"],    width = 75,  sortable = true },
+        { key = "ignore", label = "",        width = 60,  sortable = false },
+    }
+end
 
 local function CreateTableHeader(f)
     local header = CreateFrame("Frame", nil, f)
@@ -1147,7 +1254,7 @@ local function CreateTableHeader(f)
     headerLine:SetHeight(1)
 
     local x = 6
-    for _, col in ipairs(COLUMNS) do
+    for _, col in ipairs(GetColumns()) do
         local b = CreateFrame("Button", nil, header)
         b:SetSize(col.width, C.TABLE_HEADER_H)
         b:SetPoint("TOPLEFT", x, 0)
@@ -1208,15 +1315,35 @@ local function ShowRowContextMenu(entry)
                     { currentTab = entry.listType }, L)
             end,
         },
-        {
-            text = L["V2_DELETE_LIST"], notCheckable = true,
-            func = function()
-                RL.UICommon.DeletePlayerDialog(entry.name,
-                    { RefreshList = function() UI2:Refresh() end },
-                    { currentTab = entry.listType }, L)
-            end,
-        },
     }
+
+    local function AddMoveOption(toListType, label)
+        if entry.listType == toListType then return end
+        table.insert(menuList, {
+            text = label, notCheckable = true,
+            func = function()
+                local ok, toLabel = RL:MoveEntryToList(entry.listType, entry.key, toListType)
+                if ok then
+                    print(string.format(L["V2_MOVED_TO_LIST"], entry.name, toLabel))
+                end
+                UI2:Refresh()
+            end,
+        })
+    end
+
+    AddMoveOption("blacklist", L["V2_MOVE_TO_BLACKLIST"])
+    AddMoveOption("whitelist", L["V2_MOVE_TO_WHITELIST"])
+    AddMoveOption("notelist", L["V2_MOVE_TO_NOTELIST"])
+
+    table.insert(menuList, {
+        text = L["V2_DELETE_LIST"], notCheckable = true,
+        func = function()
+            RL.UICommon.DeletePlayerDialog(entry.name,
+                { RefreshList = function() UI2:Refresh() end },
+                { currentTab = entry.listType }, L)
+        end,
+    })
+
     EasyMenu(menuList, CONTEXT_MENU, "cursor", 0, 0, "MENU")
 end
 
@@ -1357,8 +1484,9 @@ local function FillRow(row, entry)
 
             local tagColor = ColorForTag(tagName)
             chip.bg:SetVertexColor(tagColor[1], tagColor[2], tagColor[3], tagColor[4] or 1)
-            chip.text:SetText(tagName)
-            chip.bg:SetWidth(math.min(50, 20 + (tagName:len() * 6)))
+            local displayTag = Utf8Len(tagName) > TAG_CHIP_MAX_CHARS and TruncateTagChipText(tagName, TAG_CHIP_MAX_CHARS) or tagName
+            chip.text:SetText(displayTag)
+            chip.bg:SetWidth(math.min(50, 20 + (Utf8Len(displayTag) * 6)))
             chip.bg:Show(); chip.shine:Show(); chip.shade:Show(); chip.border:Show(); chip.text:Show()
         else
             chip.bg:Hide(); chip.shine:Hide(); chip.shade:Hide(); chip.border:Hide(); chip.text:Hide()
@@ -1451,7 +1579,7 @@ end
 local LIST_TYPE_SHORT = { blacklist = "BL", whitelist = "WL", notelist = "NL" }
 
 local function CreateAddForm(bar)
-    local selectedListType = "blacklist"
+    local selectedListType = "notelist"
 
     local nameInput = CreateFrame("EditBox", nil, bar)
     nameInput:SetSize(100, 22)
@@ -1498,7 +1626,7 @@ local function CreateAddForm(bar)
     local dropdown = CreateFrame("Frame", "ReputationListV2TypeDropdown", bar, "UIDropDownMenuTemplate")
     dropdown:SetPoint("LEFT", noteInput, "RIGHT", -8, -2)
     UIDropDownMenu_SetWidth(dropdown, 55)
-    UIDropDownMenu_SetText(dropdown, "BL")
+    UIDropDownMenu_SetText(dropdown, "NL")
     StyleDropDown(dropdown)
 
     local function OnSelect(self)
@@ -2150,11 +2278,11 @@ local function ShowWhoHereContextMenu(mm)
               end
           end },
         { text = L["V2_ADD_BLACKLIST"], notCheckable = true,
-          func = function() RL:AddPlayerDirect(mm.name, "blacklist"); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
+          func = function() RL:AddPlayerDirect(mm.name, "blacklist", L["UI_ADDED_FROM_GROUP"]); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
         { text = L["V2_ADD_WHITELIST"], notCheckable = true,
-          func = function() RL:AddPlayerDirect(mm.name, "whitelist"); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
+          func = function() RL:AddPlayerDirect(mm.name, "whitelist", L["UI_ADDED_FROM_GROUP"]); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
         { text = L["V2_ADD_NOTELIST"], notCheckable = true,
-          func = function() RL:AddPlayerDirect(mm.name, "notelist"); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
+          func = function() RL:AddPlayerDirect(mm.name, "notelist", L["UI_ADDED_FROM_GROUP"]); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
     }
     EasyMenu(menuList, CONTEXT_MENU, "cursor", 0, 0, "MENU")
 end
@@ -2566,6 +2694,66 @@ local function CreateSettingsPage(f)
         end)
     AddHint(L["SET_DISABLE_SYNC_HINT"])
 
+    AddHeader(L["SET_SECTION_INTERFACE"])
+
+    local LANG_OPTIONS = { "auto", "ruRU", "enUS" }
+    local LANG_LABELS = { auto = L["SET_LANG_AUTO"], ruRU = L["SET_LANG_RU"], enUS = L["SET_LANG_EN"] }
+    y = y - 24
+    local langLabel = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    langLabel:SetPoint("TOPLEFT", 4, y)
+    langLabel:SetText(L["SET_LANGUAGE"])
+    local langDropdown = CreateFrame("Frame", "ReputationListV2LangDropdown", body, "UIDropDownMenuTemplate")
+    langDropdown:SetPoint("LEFT", langLabel, "RIGHT", 4, -2)
+    UIDropDownMenu_SetWidth(langDropdown, 170)
+    StyleDropDown(langDropdown)
+    local function GetLangValue() return (ReputationListDB and ReputationListDB.language) or "auto" end
+    UIDropDownMenu_SetText(langDropdown, LANG_LABELS[GetLangValue()])
+    UIDropDownMenu_Initialize(langDropdown, function(self, level)
+        for _, val in ipairs(LANG_OPTIONS) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = LANG_LABELS[val]
+            info.value = val
+            info.checked = (GetLangValue() == val)
+            info.func = function(btn)
+                ReputationListDB.language = (val ~= "auto") and val or nil
+                UIDropDownMenu_SetText(langDropdown, LANG_LABELS[val])
+                CloseDropDownMenus()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+    y = y - 12
+    AddHint(L["SET_LANGUAGE_HINT"])
+
+    local IFACE_OPTIONS = { "auto", "classic", "elvui" }
+    local IFACE_LABELS = { auto = L["SET_IFACE_AUTO"], classic = L["SET_IFACE_CLASSIC"], elvui = L["SET_IFACE_ELVUI"] }
+    y = y - 24
+    local ifaceLabel = body:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    ifaceLabel:SetPoint("TOPLEFT", 4, y)
+    ifaceLabel:SetText(L["SET_INTERFACE_MODE"])
+    local ifaceDropdown = CreateFrame("Frame", "ReputationListV2IfaceDropdown", body, "UIDropDownMenuTemplate")
+    ifaceDropdown:SetPoint("LEFT", ifaceLabel, "RIGHT", 4, -2)
+    UIDropDownMenu_SetWidth(ifaceDropdown, 170)
+    StyleDropDown(ifaceDropdown)
+    local function GetIfaceValue() return (ReputationListDB and ReputationListDB.interfaceMode) or "auto" end
+    UIDropDownMenu_SetText(ifaceDropdown, IFACE_LABELS[GetIfaceValue()])
+    UIDropDownMenu_Initialize(ifaceDropdown, function(self, level)
+        for _, val in ipairs(IFACE_OPTIONS) do
+            local info = UIDropDownMenu_CreateInfo()
+            info.text = IFACE_LABELS[val]
+            info.value = val
+            info.checked = (GetIfaceValue() == val)
+            info.func = function(btn)
+                ReputationListDB.interfaceMode = (val ~= "auto") and val or nil
+                UIDropDownMenu_SetText(ifaceDropdown, IFACE_LABELS[val])
+                CloseDropDownMenus()
+            end
+            UIDropDownMenu_AddButton(info)
+        end
+    end)
+    y = y - 12
+    AddHint(L["SET_INTERFACE_MODE_HINT"])
+
     AddHeader(L["SET_SECTION_TRANSFER"])
     y = y - 24
     local exportBtn = CreateButton(body, 200, 22, L["SET_OPEN_TRANSFER"])
@@ -2796,10 +2984,9 @@ local function CreateCardFrame()
     end)
     noteEdit:SetScript("OnEscapePressed", function(self)
         self:ClearFocus()
-        card.noteEditMode = false
-        card.noteEdit:EnableMouse(false)
-        card.noteFrame:SetBackdropBorderColor(PAL.bronze[1], PAL.bronze[2], PAL.bronze[3], 0.9)
-        UI2:RefreshCard()
+        if card.noteEditMode then
+            UI2:SaveCardNote()
+        end
     end)
     noteBox:SetScrollChild(noteEdit)
     card.noteEdit = noteEdit
@@ -2817,16 +3004,33 @@ local function CreateCardFrame()
     card.metaText = metaText
     card.metaDivider = metaDivider
 
+    local historyWidth = math.floor((CARD_W - 24) * 0.9)
+
+    local historyFrame = CreateFrame("Frame", nil, content)
+    historyFrame:SetPoint("TOPLEFT", 0, 0)
+    historyFrame:SetPoint("BOTTOMLEFT", 0, 0)
+    historyFrame:SetWidth(historyWidth)
+    historyFrame:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 10,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    historyFrame:SetBackdropColor(0, 0, 0, 0.8)
+    historyFrame:SetBackdropBorderColor(PAL.bronze[1], PAL.bronze[2], PAL.bronze[3], 0.9)
+    historyFrame:Hide()
+    card.historyFrame = historyFrame
+
     local historyBox = CreateFrame("ScrollFrame", "ReputationListV2CardHistoryScroll", content, "UIPanelScrollFrameTemplate")
     StyleScrollBar(historyBox)
-    historyBox:SetPoint("TOPLEFT", 0, 0)
-    historyBox:SetPoint("BOTTOMRIGHT", -24, 0)
+    historyBox:SetPoint("TOPLEFT", 4, -2)
+    historyBox:SetPoint("BOTTOMRIGHT", historyFrame, "BOTTOMRIGHT", -4, 2)
     local historyText = CreateFrame("Frame", nil, historyBox)
-    historyText:SetSize(CARD_W - 44, 1)
+    historyText:SetSize(historyWidth - 24, 1)
     historyBox:SetScrollChild(historyText)
     local historyFS = historyText:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     historyFS:SetPoint("TOPLEFT")
-    historyFS:SetWidth(CARD_W - 44)
+    historyFS:SetWidth(historyWidth - 24)
     historyFS:SetJustifyH("LEFT")
     card.historyBox, card.historyText, card.historyFS = historyBox, historyText, historyFS
 
@@ -2925,12 +3129,12 @@ local function CreateCardFrame()
             text = L["V2_SEND_CARD_TO"],
             button1 = L["V2_SEND"], button2 = L["V2_CANCEL"],
             hasEditBox = true, timeout = 0, whileDead = true, hideOnEscape = true,
-            OnAccept = function(self)
+            OnAccept = function(self, data)
                 local target = self.editBox:GetText():gsub("^%s+", ""):gsub("%s+$", "")
                 if target == "" then return end
-                local ok, err = RL.Sync:SendEntryTo(target, entryRef.listType, entryRef.key)
+                local ok, err = RL.Sync:SendEntryTo(target, data.listType, data.key)
                 if ok then
-                    print("|cFF33CCFFReputationList:|r " .. string.format(L["V2_CARD_SENT"], entryRef.name, target))
+                    print("|cFF33CCFFReputationList:|r " .. string.format(L["V2_CARD_SENT"], data.name, target))
                 else
                     print("|cFFFF0000ReputationList:|r " .. tostring(err))
                 end
@@ -2939,7 +3143,7 @@ local function CreateCardFrame()
                 self:GetParent().button1:Click()
             end,
         }
-        StaticPopup_Show("REPLIST_V2_SEND_ENTRY", card.entry.name)
+        StaticPopup_Show("REPLIST_V2_SEND_ENTRY", card.entry.name, nil, entryRef)
     end)
     StubTooltip(sendBtn, L["V2_SEND_CARD_HINT"])
 
@@ -3082,9 +3286,11 @@ function UI2:RefreshCard()
     end
 
     SetShownCompat(card.noteBox, card.subTab == "note")
+    SetShownCompat(card.noteFrame, card.subTab == "note")
     SetShownCompat(card.metaText, card.subTab == "note")
     SetShownCompat(card.metaDivider, card.subTab == "note")
     SetShownCompat(card.historyBox, card.subTab == "history")
+    SetShownCompat(card.historyFrame, card.subTab == "history")
 
     if card.subTab == "note" then
         if not card.noteEditMode then
@@ -3136,6 +3342,7 @@ function UI2:CreateMainFrame()
     f:SetFrameStrata("HIGH")
     CreatePanelBackdrop(f)
     tinsert(UISpecialFrames, "ReputationListV2Frame")
+    CreateResizeGrip(f)
 
     CreateHeader(f)
     CreateTabs(f)

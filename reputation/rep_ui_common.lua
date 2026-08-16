@@ -278,7 +278,8 @@ function Common.AsyncSerialize(data, callback, L)
         Common.exportState.progressText:SetText(L and L["UI_CB12"] or "Processing...")
     end
     
-    local preparationFrame = CreateFrame("Frame")
+    Common.exportState.prepFrame = Common.exportState.prepFrame or CreateFrame("Frame")
+    local preparationFrame = Common.exportState.prepFrame
     preparationFrame:SetScript("OnUpdate", function(self, elapsed)
         if currentIndex > totalToProcess then
             self:SetScript("OnUpdate", nil)
@@ -315,6 +316,17 @@ function Common.AsyncSerialize(data, callback, L)
 end
 
 function Common.StartBatchSerialization(playerQueue, callback, L)
+    local function EscapeStr(s)
+        s = tostring(s):gsub('\\', '\\\\')
+        s = s:gsub('"', '\\"')
+        s = s:gsub('\r\n', '\\n')
+        s = s:gsub('\n', '\\n')
+        s = s:gsub('\r', '\\n')
+        s = s:gsub('\t', '\\t')
+        s = s:gsub('%z', '')
+        return s
+    end
+
     local result = {"ReputationList_Import = {\n  realms = {\n"}
     local currentRealm = nil
     local currentListType = nil
@@ -326,13 +338,14 @@ function Common.StartBatchSerialization(playerQueue, callback, L)
         Common.exportState.progressText:SetText(L and L["UI_CB13"] or "Serializing...")
     end
     
-    local serializationFrame = CreateFrame("Frame")
+    Common.exportState.serialFrame = Common.exportState.serialFrame or CreateFrame("Frame")
+    local serializationFrame = Common.exportState.serialFrame
     serializationFrame:SetScript("OnUpdate", function(self, elapsed)
         if currentIndex > total then
             self:SetScript("OnUpdate", nil)
             
-            if currentListType then table.insert(result, "      }\n") end
-            if currentRealm then table.insert(result, "    }\n") end
+            if currentListType then table.insert(result, "      },\n") end
+            if currentRealm then table.insert(result, "    },\n") end
             table.insert(result, "  }\n}")
             
             Common.exportState.inProgress = false
@@ -340,7 +353,10 @@ function Common.StartBatchSerialization(playerQueue, callback, L)
                 Common.exportState.frame:Hide() 
             end
             
-            callback(table.concat(result), total)
+            local finalString = table.concat(result)
+            result = nil
+            collectgarbage("collect")
+            callback(finalString, total)
             return
         end
         
@@ -349,40 +365,41 @@ function Common.StartBatchSerialization(playerQueue, callback, L)
             local entry = playerQueue[i]
             
             if entry.realm ~= currentRealm then
-                if currentListType then table.insert(result, "      }\n") currentListType = nil end
-                if currentRealm then table.insert(result, "    }\n") end
+                if currentListType then table.insert(result, "      },\n") currentListType = nil end
+                if currentRealm then table.insert(result, "    },\n") end
                 currentRealm = entry.realm
                 table.insert(result, '    ["' .. entry.realm .. '"] = {\n')
             end
             
             if entry.listType ~= currentListType then
-                if currentListType then table.insert(result, "      }\n") end
+                if currentListType then table.insert(result, "      },\n") end
                 currentListType = entry.listType
                 table.insert(result, '      ["' .. entry.listType .. '"] = {\n')
             end
             
-            local playerName = entry.playerName:gsub('"', '\\"')
+            local playerName = EscapeStr(entry.playerName)
             
             table.insert(result, '        ["' .. playerName .. '"] = {\n')
             
             local pd = entry.playerData
             if pd.note then
-                local note = tostring(pd.note):gsub('"', '\\"')
+                local note = tostring(pd.note)
                 if #note > 500 then note = note:sub(1, 500) .. "..." end
+                note = EscapeStr(note)
                 table.insert(result, '          note = "' .. note .. '",\n')
             end
-            if pd.guid then table.insert(result, '          guid = "' .. tostring(pd.guid) .. '",\n') end
-            if pd.class then table.insert(result, '          class = "' .. tostring(pd.class) .. '",\n') end
-            if pd.race then table.insert(result, '          race = "' .. tostring(pd.race) .. '",\n') end
+            if pd.guid then table.insert(result, '          guid = "' .. EscapeStr(pd.guid) .. '",\n') end
+            if pd.class then table.insert(result, '          class = "' .. EscapeStr(pd.class) .. '",\n') end
+            if pd.race then table.insert(result, '          race = "' .. EscapeStr(pd.race) .. '",\n') end
             if pd.level then table.insert(result, '          level = ' .. tostring(pd.level) .. ',\n') end
-            if pd.guild then table.insert(result, '          guild = "' .. tostring(pd.guild):gsub('"', '\\"') .. '",\n') end
-            if pd.faction then table.insert(result, '          faction = "' .. tostring(pd.faction) .. '",\n') end
-            if pd.addedBy then table.insert(result, '          addedBy = "' .. tostring(pd.addedBy) .. '",\n') end
+            if pd.guild then table.insert(result, '          guild = "' .. EscapeStr(pd.guild) .. '",\n') end
+            if pd.faction then table.insert(result, '          faction = "' .. EscapeStr(pd.faction) .. '",\n') end
+            if pd.addedBy then table.insert(result, '          addedBy = "' .. EscapeStr(pd.addedBy) .. '",\n') end
             if pd.timestamp then table.insert(result, '          timestamp = ' .. tostring(pd.timestamp) .. ',\n') end
-            if pd.addedDate then table.insert(result, '          addedDate = "' .. tostring(pd.addedDate):gsub('"', '\\"') .. '",\n') end
-            if pd.name then table.insert(result, '          name = "' .. tostring(pd.name):gsub('"', '\\"') .. '",\n') end
-            if pd.key then table.insert(result, '          key = "' .. tostring(pd.key):gsub('"', '\\"') .. '",\n') end
-            if pd.armoryLink then table.insert(result, '          armoryLink = "' .. tostring(pd.armoryLink):gsub('"', '\\"') .. '",\n') end
+            if pd.addedDate then table.insert(result, '          addedDate = "' .. EscapeStr(pd.addedDate) .. '",\n') end
+            if pd.name then table.insert(result, '          name = "' .. EscapeStr(pd.name) .. '",\n') end
+            if pd.key then table.insert(result, '          key = "' .. EscapeStr(pd.key) .. '",\n') end
+            if pd.armoryLink then table.insert(result, '          armoryLink = "' .. EscapeStr(pd.armoryLink) .. '",\n') end
             
             table.insert(result, '        },\n')
         end

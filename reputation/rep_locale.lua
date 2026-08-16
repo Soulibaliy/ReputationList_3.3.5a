@@ -23,7 +23,15 @@ local function NormalizeLocale(loc)
 
 end
 
-local normalizedLocale = NormalizeLocale(locale)
+local savedLanguage = ReputationListDB and ReputationListDB.language
+local normalizedLocale
+if savedLanguage == "ruRU" or savedLanguage == "enUS" then
+    normalizedLocale = savedLanguage
+else
+    normalizedLocale = NormalizeLocale(locale)
+end
+
+RL.SettingsReapplyCallbacks = RL.SettingsReapplyCallbacks or {}
 
 
 local Translations = {
@@ -837,6 +845,17 @@ local SettingsTranslations = {
         SET_SECTION_TRANSFER = "Экспорт и импорт",
         SET_OPEN_TRANSFER = "Открыть экспорт/импорт",
         SET_TRANSFER_HINT = "Отправка конкретному игроку находится на вкладке «Синхронизация».",
+        SET_SECTION_INTERFACE = "Язык и интерфейс",
+        SET_LANGUAGE = "Язык аддона",
+        SET_LANGUAGE_HINT = "Изменения вступят в силу после /reload или перезахода.",
+        SET_INTERFACE_MODE = "Стиль интерфейса",
+        SET_INTERFACE_MODE_HINT = "Изменения вступят в силу после /reload или перезахода.",
+        SET_LANG_AUTO = "Авто (по языку клиента)",
+        SET_LANG_RU = "Русский",
+        SET_LANG_EN = "English",
+        SET_IFACE_AUTO = "Авто (определять ElvUI)",
+        SET_IFACE_CLASSIC = "Classic",
+        SET_IFACE_ELVUI = "ElvUI",
     },
     enUS = {
         SET_SECTION_NOTIFICATIONS = "Notifications",
@@ -864,6 +883,17 @@ local SettingsTranslations = {
         SET_SECTION_TRANSFER = "Export and import",
         SET_OPEN_TRANSFER = "Open export/import",
         SET_TRANSFER_HINT = "Use the Synchronization tab to send data to a specific player.",
+        SET_SECTION_INTERFACE = "Language and interface",
+        SET_LANGUAGE = "Addon language",
+        SET_LANGUAGE_HINT = "Changes take effect after /reload or relogging.",
+        SET_INTERFACE_MODE = "Interface style",
+        SET_INTERFACE_MODE_HINT = "Changes take effect after /reload or relogging.",
+        SET_LANG_AUTO = "Auto (match client language)",
+        SET_LANG_RU = "Russian",
+        SET_LANG_EN = "English",
+        SET_IFACE_AUTO = "Auto (detect ElvUI)",
+        SET_IFACE_CLASSIC = "Classic",
+        SET_IFACE_ELVUI = "ElvUI",
     },
 }
 
@@ -914,6 +944,26 @@ end
 function RL:IsRussianLocale()
     return normalizedLocale == "ruRU"
 end
+
+table.insert(RL.SettingsReapplyCallbacks, function()
+    local override = ReputationListDB and ReputationListDB.language
+    if override == "ruRU" or override == "enUS" then
+        normalizedLocale = override
+    else
+        normalizedLocale = NormalizeLocale(locale)
+    end
+    currentTranslations = Translations[normalizedLocale] or Translations["enUS"]
+end)
+
+local settingsReadyFrame = CreateFrame("Frame")
+settingsReadyFrame:RegisterEvent("ADDON_LOADED")
+settingsReadyFrame:RegisterEvent("PLAYER_LOGIN")
+settingsReadyFrame:SetScript("OnEvent", function(self, event, addonName)
+    if event == "ADDON_LOADED" and addonName ~= "reputation" then return end
+    for _, callback in ipairs(RL.SettingsReapplyCallbacks) do
+        pcall(callback)
+    end
+end)
 
 
 ReputationListLocale = L

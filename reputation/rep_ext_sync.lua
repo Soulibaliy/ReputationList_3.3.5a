@@ -319,6 +319,27 @@ local function SanitizeTags(tags)
     return clean
 end
 
+local function SanitizeHistory(history)
+    if history == nil then return nil end
+    if type(history) ~= "table" then return nil end
+    local clean, count = {}, 0
+    for _, record in ipairs(history) do
+        count = count + 1
+        if count > 20 then break end
+        if type(record) == "table" then
+            local change = CopyBoundedString(record.change, 200)
+            if change then
+                clean[#clean + 1] = {
+                    date = CopyBoundedString(record.date, 32),
+                    by = CopyBoundedString(record.by, 80),
+                    change = change,
+                }
+            end
+        end
+    end
+    return clean
+end
+
 local function ValidateAndSanitizePayload(payload)
     if type(payload) ~= "table" or type(payload.lists) ~= "table" then return nil, 0 end
     local clean = {
@@ -361,6 +382,9 @@ local function ValidateAndSanitizePayload(payload)
                     tags = SanitizeTags(entry.tags),
                     addedDate = CopyBoundedString(entry.addedDate, 32),
                     addedBy = CopyBoundedString(entry.addedBy, 80),
+                    armoryLink = CopyBoundedString(entry.armoryLink, 256),
+                    history = SanitizeHistory(entry.history),
+                    lastUpdateDate = CopyBoundedString(entry.lastUpdateDate, 32),
                 }
             end
         end

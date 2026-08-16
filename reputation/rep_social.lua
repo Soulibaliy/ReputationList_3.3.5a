@@ -12,13 +12,19 @@ local E, L, V, P, G
 local S
 local useElvUI = false
 
-if ElvUI then
-    E, L, V, P, G = unpack(ElvUI)
-    if E then
-        S = E:GetModule('Skins')
-        useElvUI = true
+local function ApplyInterfaceMode()
+    if ElvUI then
+        E, L, V, P, G = unpack(ElvUI)
+        if E then
+            S = E:GetModule('Skins')
+        end
     end
+    useElvUI = RL.IsElvUI and RL.IsElvUI() or false
 end
+ApplyInterfaceMode()
+
+RL.SettingsReapplyCallbacks = RL.SettingsReapplyCallbacks or {}
+table.insert(RL.SettingsReapplyCallbacks, ApplyInterfaceMode)
 
 local L = ReputationList.L or ReputationListLocale
 
@@ -1481,7 +1487,7 @@ local function UpdateGuildMarks()
     local offset = FauxScrollFrame_GetOffset(GuildListScrollFrame)
     local totalMembers = GetNumGuildMembers and GetNumGuildMembers() or 0
     
-    local isElvUI = (ElvUI and E and S) and true or false
+    local isElvUI = useElvUI
     
     for i = 1, GUILDMEMBERS_TO_DISPLAY do
         local button = _G["GuildFrameButton"..i]
