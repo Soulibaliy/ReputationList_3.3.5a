@@ -91,23 +91,52 @@ local function FixScale(frame)
 end
 RL.FixElvUIScale = FixScale
 
-local MIN_USER_SCALE, MAX_USER_SCALE = 0.6, 1.6
+local MIN_USER_SCALE, MAX_USER_SCALE = 0.5, 2.5
 
-local function ApplyUserScale(frame, userScale)
-    userScale = math.max(MIN_USER_SCALE, math.min(MAX_USER_SCALE, userScale or 1))
+local function ClampUserScale(v)
+    return math.max(MIN_USER_SCALE, math.min(MAX_USER_SCALE, v or 1))
+end
+
+-- Применяет масштаб, удерживая левый верхний угол окна на месте.
+-- sx/sy — экранные координаты угла (GetLeft/GetTop * EffectiveScale), независимы от разрешения и UI scale.
+local function ApplyUserScale(frame, userScale, sx, sy)
+    userScale = ClampUserScale(userScale)
     frame._userScale = userScale
-    frame:SetScale((frame._elvBaseScale or 1) * userScale)
+    local newScale = (frame._elvBaseScale or 1) * userScale
+    frame:SetScale(newScale)
+    if sx and sy then
+        local newEs = newScale * (UIParent:GetEffectiveScale() or 1)
+        frame:ClearAllPoints()
+        frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", sx / newEs, sy / newEs)
+    end
+end
+
+local function GetFrameTopLeftScreen(f)
+    local es = f:GetEffectiveScale()
+    local l, t = f:GetLeft(), f:GetTop()
+    if not l or not t then return nil end
+    return l * es, t * es
 end
 
 local function CreateResizeGrip(f)
     f._elvBaseScale = f:GetScale()
+    f:SetClampedToScreen(true)
 
-    local savedScale = (ReputationListDB and ReputationListDB.v2Scale) or 1
-    ApplyUserScale(f, savedScale)
+    ApplyUserScale(f, (ReputationListDB and ReputationListDB.v2Scale) or 1)
 
-    f:SetResizable(true)
-    if f.SetMinResize then f:SetMinResize(C.FRAME_W * MIN_USER_SCALE, C.FRAME_H * MIN_USER_SCALE) end
-    if f.SetMaxResize then f:SetMaxResize(C.FRAME_W * MAX_USER_SCALE, C.FRAME_H * MAX_USER_SCALE) end
+    -- Размер окна в собственных координатах фиксирован (C.FRAME_W x C.FRAME_H), меняется только scale.
+    -- Пересчёт при смене разрешения / UI scale (4K, ElvUI и т.п.)
+    local watcher = CreateFrame("Frame")
+    watcher:RegisterEvent("UI_SCALE_CHANGED")
+    watcher:RegisterEvent("DISPLAY_SIZE_CHANGED")
+    watcher:SetScript("OnEvent", function()
+        if IsElvUI() then
+            local uiScale = UIParent:GetScale()
+            if uiScale and uiScale > 0 then f._elvBaseScale = 1 / uiScale end
+        end
+        local sx, sy = GetFrameTopLeftScreen(f)
+        ApplyUserScale(f, f._userScale or 1, sx, sy)
+    end)
 
     local grip = CreateFrame("Button", nil, f)
     grip:SetSize(16, 16)
@@ -123,38 +152,69 @@ local function CreateResizeGrip(f)
         grip["line" .. i] = line
     end
 
-    grip:SetScript("OnEnter", function(self)
+    local function SetGripColor(self, hot)
+        local c = hot and PAL.gold or PAL.bronze
         for i = 1, 3 do
-            self["line" .. i]:SetVertexColor(PAL.gold[1], PAL.gold[2], PAL.gold[3], 1)
+            self["line" .. i]:SetVertexColor(c[1], c[2], c[3], hot and 1 or 0.9)
         end
-    end)
+    end
+
+    grip:SetScript("OnEnter", function(self) SetGripColor(self, true) end)
     grip:SetScript("OnLeave", function(self)
         if self.dragging then return end
-        for i = 1, 3 do
-            self["line" .. i]:SetVertexColor(PAL.bronze[1], PAL.bronze[2], PAL.bronze[3], 0.9)
-        end
+        SetGripColor(self, false)
     end)
 
-    grip:SetScript("OnMouseDown", function(self, button)
-        if button ~= "LeftButton" then return end
-        self.dragging = true
-        f:StartSizing("BOTTOMRIGHT")
-    end)
-
-    grip:SetScript("OnMouseUp", function(self)
+    local function StopDrag(self)
         if not self.dragging then return end
         self.dragging = false
-        f:StopMovingOrSizing()
+        self:SetScript("OnUpdate", nil)
+        if ReputationListDB then ReputationListDB.v2Scale = f._userScale end
+        if not self:IsMouseOver() then SetGripColor(self, false) end
+    end
 
-        local newScale = f:GetWidth() / C.FRAME_W
-        f:SetSize(C.FRAME_W, C.FRAME_H)
-        ApplyUserScale(f, newScale)
-        ReputationListDB.v2Scale = f._userScale
+    local DBL_CLICK = 0.35
+    grip:SetScript("OnMouseDown", function(self, button)
+        if button ~= "LeftButton" then return end
 
-        for i = 1, 3 do
-            self["line" .. i]:SetVertexColor(PAL.bronze[1], PAL.bronze[2], PAL.bronze[3], 0.9)
+        -- двойной щелчок: возврат к стандартному размеру
+        local now = GetTime()
+        if self.lastClick and (now - self.lastClick) < DBL_CLICK then
+            self.lastClick = nil
+            local sx, sy = GetFrameTopLeftScreen(f)
+            ApplyUserScale(f, 1, sx, sy)
+            if ReputationListDB then ReputationListDB.v2Scale = 1 end
+            return
         end
+        self.lastClick = now
+
+        local sx, sy = GetFrameTopLeftScreen(f)
+        if not sx then return end
+        self.dragging = true
+        self.anchorX, self.anchorY = sx, sy
+        self.lastScale = f._userScale
+
+        local W, H = C.FRAME_W, C.FRAME_H
+        self:SetScript("OnUpdate", function(g)
+            if not IsMouseButtonDown("LeftButton") then StopDrag(g) return end
+            local cx, cy = GetCursorPosition()
+            local dx, dy = cx - g.anchorX, g.anchorY - cy
+            -- проекция вектора курсора на диагональ окна: плавно и без рывков
+            local es = (g.anchorX and (UIParent:GetEffectiveScale() * (f._elvBaseScale or 1))) or 1
+            local px = (dx * W + dy * H) / (W * W + H * H)   -- эффективный scale
+            local userScale = ClampUserScale(px / es)
+            if math.abs(userScale - (g.lastScale or 0)) > 0.0005 then
+                g.lastScale = userScale
+                ApplyUserScale(f, userScale, g.anchorX, g.anchorY)
+            end
+        end)
     end)
+
+    grip:SetScript("OnMouseUp", function(self, button)
+        if button ~= "LeftButton" then return end
+        StopDrag(self)
+    end)
+    grip:SetScript("OnHide", StopDrag)
 
     f.resizeGrip = grip
     return grip
@@ -1665,6 +1725,39 @@ local function CreateAddForm(bar)
     return addBtn
 end
 
+-- Импорт игроков из встроенного чёрного списка (ignore) в Blacklist
+function RL:ImportBlizzardIgnore()
+    local num = GetNumIgnores() or 0
+    if num == 0 then
+        print("|cFFFFAA00ReputationList:|r " .. L["V2_IMPORT_IGNORE_EMPTY"])
+        return 0
+    end
+    local names = {}
+    for i = 1, num do
+        local n = GetIgnoreName(i)
+        if n and n ~= "" then names[#names + 1] = n end
+    end
+    local added, skipped = 0, 0
+    self.batchMode = true
+    for _, raw in ipairs(names) do
+        local name = RL.NormalizeName(raw)
+        if name ~= "" then
+            if RL:FindPlayerInAllLists(name) then
+                skipped = skipped + 1
+            elseif self:AddPlayerDirect(name, "blacklist", L["V2_IMPORT_IGNORE_NOTE"]) then
+                added = added + 1
+            end
+        end
+    end
+    self.batchMode = false
+    if RL.BuildGUIDIndex then RL.BuildGUIDIndex() end
+    if RL.InvalidateCache then RL.InvalidateCache() end
+    if RL.SaveSettings then RL:SaveSettings() end
+    print(string.format("|cFF00FF00ReputationList:|r " .. L["V2_IMPORT_IGNORE_DONE"], added, skipped))
+    return added
+end
+
+
 local function CreateBottomBar(f)
     local bar = CreateFrame("Frame", nil, f)
     bar:SetPoint("BOTTOMLEFT", 10, 8)
@@ -1697,6 +1790,14 @@ local function CreateBottomBar(f)
         end
         RL.Transfer:ShowUI()
     end)
+
+    local ignBtn = CreateButton(bar, 84, 22, L["V2_IMPORT_IGNORE"])
+    ignBtn:SetPoint("LEFT", exportBtn, "RIGHT", 6, 0)
+    ignBtn:SetScript("OnClick", function()
+        RL:ImportBlizzardIgnore()
+        UI2:Refresh()
+    end)
+    StubTooltip(ignBtn, L["V2_IMPORT_IGNORE_TT"])
 
     local total = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     total:SetPoint("RIGHT", -4, 0)
@@ -2278,11 +2379,11 @@ local function ShowWhoHereContextMenu(mm)
               end
           end },
         { text = L["V2_ADD_BLACKLIST"], notCheckable = true,
-          func = function() RL:AddPlayerDirect(mm.name, "blacklist", L["UI_ADDED_FROM_GROUP"]); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
+          func = function() RL:AddPlayerDirect(mm.name, "blacklist", L["UI_ADDED_FROM_GROUP"], nil, mm); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
         { text = L["V2_ADD_WHITELIST"], notCheckable = true,
-          func = function() RL:AddPlayerDirect(mm.name, "whitelist", L["UI_ADDED_FROM_GROUP"]); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
+          func = function() RL:AddPlayerDirect(mm.name, "whitelist", L["UI_ADDED_FROM_GROUP"], nil, mm); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
         { text = L["V2_ADD_NOTELIST"], notCheckable = true,
-          func = function() RL:AddPlayerDirect(mm.name, "notelist", L["UI_ADDED_FROM_GROUP"]); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
+          func = function() RL:AddPlayerDirect(mm.name, "notelist", L["UI_ADDED_FROM_GROUP"], nil, mm); UI2:RefreshWhoHerePage(); UI2:Refresh() end },
     }
     EasyMenu(menuList, CONTEXT_MENU, "cursor", 0, 0, "MENU")
 end
@@ -2337,13 +2438,15 @@ function UI2:RefreshWhoHerePage()
         local row = p.rows[i]
         if not row then
             row = CreateFrame("Button", nil, p.scrollChild)
-            row:SetSize(560, 22)
+            row:SetSize(720, 36)
             local bg = ColorFill(row, {1, 1, 1, 0.04}, "BACKGROUND")
             bg:SetAllPoints()
             row.bg = bg
             local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             fs:SetPoint("LEFT", 4, 0)
-            fs:SetWidth(540)
+            fs:SetWidth(712)
+            fs:SetHeight(32)
+            fs:SetJustifyV("MIDDLE")
             fs:SetJustifyH("LEFT")
             row.fs = fs
             row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -2386,11 +2489,15 @@ function UI2:RefreshWhoHerePage()
         local statusStr = m.inList and (WHOHERE_LIST_LABEL[m.listType] or m.listType) or L["V2_NOT_LISTED"]
         row.fs:SetText(string.format(L["V2_WHO_ROW"],
             nameColor, m.name, m.class or "?", m.race or "?", tostring(m.level or "?"),
-            (m.guild and m.guild ~= "" and m.guild) or "—", statusStr))
+            (m.guild and m.guild ~= "" and m.guild) or "—", statusStr)
+            .. "\n" .. string.format(L["V2_WHO_ROW2"],
+            tostring(m.guid or "?"), tostring(m.faction or "?"),
+            m.firstSeen and date("%d.%m %H:%M", m.firstSeen) or "?",
+            m.lastSeen and date("%d.%m %H:%M", m.lastSeen) or "?"))
 
         row.member = m
         row:Show()
-        yOff = yOff + 22
+        yOff = yOff + 38
     end
     p.scrollChild:SetHeight(math.max(yOff, 1))
 end

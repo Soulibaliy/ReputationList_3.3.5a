@@ -125,9 +125,16 @@ function GroupTracker:GetAllGroupMembersWithListInfo()
             e = {}
             ALL_MEMBERS_POOL[name] = e
         end
-        e.name, e.guid, e.class = info.name, info.guid, info.class
-        e.race, e.level, e.guild = info.race, info.level, info.guild
-        e.faction, e.inList, e.listType = info.faction, listType ~= nil, listType
+        local ld = listData or {}
+        e.name = info.name
+        e.guid = info.guid or ld.guid
+        e.class = info.class or ld.class
+        e.race = info.race or ld.race
+        e.level = info.level or ld.level
+        e.guild = info.guild or ld.guild
+        e.faction = info.faction or ld.faction
+        e.firstSeen = info.firstSeen
+        e.inList, e.listType = listType ~= nil, listType
         e.listData, e.note, e.lastSeen = listData, listData and listData.note or nil, info.lastSeen
         ALL_MEMBERS_OUT[#ALL_MEMBERS_OUT + 1] = e
     end
@@ -190,9 +197,14 @@ function GroupTracker:SaveCurrentGroup()
                 lastSeen = time()
             }
         else
-            ReputationGroupTrackerDB.whoHereCache[key].lastSeen = time()
-            ReputationGroupTrackerDB.whoHereCache[key].guild = info.guild
-            ReputationGroupTrackerDB.whoHereCache[key].level = info.level
+            local c = ReputationGroupTrackerDB.whoHereCache[key]
+            c.lastSeen = time()
+            if info.guid then c.guid = info.guid end
+            if info.class then c.class = info.class end
+            if info.race then c.race = info.race end
+            if info.level and info.level > 0 then c.level = info.level end
+            if info.guild then c.guild = info.guild end
+            if info.faction then c.faction = info.faction end
         end
     end
 end
@@ -223,6 +235,7 @@ function GroupTracker:ClearWhoHereCache()
 end
 
 function GroupTracker:OnGroupRosterUpdate()
+    self:ForceUpdate()
     self:GetCurrentGroupMembers()
     
     self:SaveCurrentGroup()
@@ -247,6 +260,25 @@ function GroupTracker:Initialize()
         GroupTracker:OnGroupRosterUpdate()
     end)
     self.frame = frame
+
+    local acc = 0
+    local retry = CreateFrame("Frame")
+    retry:SetScript("OnUpdate", function(_, elapsed)
+        acc = acc + elapsed
+        if acc < 5 then return end
+        acc = 0
+        if not GroupTracker:IsInGroup() then return end
+        local cache = ReputationGroupTrackerDB and ReputationGroupTrackerDB.whoHereCache
+        if not cache then return end
+        for _, c in pairs(cache) do
+            if not (c.race and c.guid and c.level and c.level > 0 and c.faction) then
+                GroupTracker:ForceUpdate()
+                GroupTracker:SaveCurrentGroup()
+                break
+            end
+        end
+    end)
+    self.retryFrame = retry
 end
 
 GroupTracker:Initialize()

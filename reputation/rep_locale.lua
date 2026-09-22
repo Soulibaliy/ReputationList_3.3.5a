@@ -66,7 +66,7 @@ local Translations = {
         
         ["LIST_USAGE"] = "Использование: /rlist list [black/white/note]",
         ["LIST_EMPTY"] = "Список пуст",
-        ["TOTAL_ENTRIES"] = "Всего записей:",
+        ["TOTAL_ENTRIES"] = "Всего:",
         
         ["AUTO_NOTIFY_ON"] = "Автооповещение в чат группы включено",
         ["AUTO_NOTIFY_OFF"] = "Автооповещение в чат группы выключено",
@@ -334,7 +334,7 @@ local Translations = {
 		["WEM11"] = "|cFFFF0000ReputationList:|r Использование: /rlist check [Имя]",
 		["WEM12"] = " не найден ни в одном списке.",
 		["WEM13"] = "|cFFFF0000ReputationList:|r Использование: /rlist list [black/white/note]",
-		["WEM14"] = "|cFFFFFFFFВсего записей: ",
+		["WEM14"] = "|cFFFFFFFFВсего: ",
 		["WEM15"] = "|cFFFFFFFFСписок пуст|r",
 		["WEM16"] = "|cFF00FF00ReputationList:|r Автооповещение в чат группы |cFF00FF00включено|r",
 		["WEM17"] = "|cFFFF0000ReputationList:|r Автооповещение в чат группы |cFFFF0000выключено|r",
@@ -456,7 +456,7 @@ local Translations = {
         
         ["LIST_USAGE"] = "Usage: /rlist list [black/white/note]",
         ["LIST_EMPTY"] = "List is empty",
-        ["TOTAL_ENTRIES"] = "Total entries:",
+        ["TOTAL_ENTRIES"] = "Total:",
         
         ["AUTO_NOTIFY_ON"] = "Auto-notify to group chat enabled",
         ["AUTO_NOTIFY_OFF"] = "Auto-notify to group chat disabled",
@@ -724,7 +724,7 @@ local Translations = {
 		["WEM11"] = "|cFFFF0000ReputationList:|r Usage: /rlist check [Name]",
 		["WEM12"] = " not found in any list.",
 		["WEM13"] = "|cFFFF0000ReputationList:|r Usage: /rlist list [black/white/note]",
-		["WEM14"] = "|cFFFFFFFFTotal entries: ",
+		["WEM14"] = "|cFFFFFFFFTotal: ",
 		["WEM15"] = "|cFFFFFFFFList is empty|r",
 		["WEM16"] = "|cFF00FF00ReputationList:|r Group chat auto-notification |cFF00FF00enabled|r",
 		["WEM17"] = "|cFFFF0000ReputationList:|r Group chat auto-notification |cFFFF0000disabled|r",

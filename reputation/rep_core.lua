@@ -1,6 +1,6 @@
 ReputationList = ReputationList or {}
 local RL = ReputationList
-RL.version = "2.1"
+RL.version = "2.2"
 if not RL.SanitizeString then
     error("Security module not loaded! Check .toc file order.")
 end
@@ -1138,13 +1138,15 @@ function RL:AddPlayerDirect(playerName, listType, note, unit, cachedPlayerData)
         if currentInfo.level and currentInfo.level > 0 then playerData.level = currentInfo.level end
         if currentInfo.guild then playerData.guild = currentInfo.guild end
         if currentInfo.faction then playerData.faction = currentInfo.faction end
-    elseif cachedPlayerData then
-        if cachedPlayerData.guid then playerData.guid = cachedPlayerData.guid end
-        if cachedPlayerData.class then playerData.class = cachedPlayerData.class end
-        if cachedPlayerData.race then playerData.race = cachedPlayerData.race end
-        if cachedPlayerData.level then playerData.level = cachedPlayerData.level end
-        if cachedPlayerData.guild then playerData.guild = cachedPlayerData.guild end
-        if cachedPlayerData.faction then playerData.faction = cachedPlayerData.faction end
+    end
+    if cachedPlayerData then
+        -- кэш дополняет только то, чего не дал живой юнит
+        if not playerData.guid and cachedPlayerData.guid then playerData.guid = cachedPlayerData.guid end
+        if not playerData.class and cachedPlayerData.class then playerData.class = cachedPlayerData.class end
+        if not playerData.race and cachedPlayerData.race then playerData.race = cachedPlayerData.race end
+        if not playerData.level and cachedPlayerData.level and cachedPlayerData.level > 0 then playerData.level = cachedPlayerData.level end
+        if not playerData.guild and cachedPlayerData.guild then playerData.guild = cachedPlayerData.guild end
+        if not playerData.faction and cachedPlayerData.faction then playerData.faction = cachedPlayerData.faction end
     end
     
     playerData.addedRealm = GetCurrentRealm()
@@ -1169,6 +1171,7 @@ function RL:AddPlayerDirect(playerName, listType, note, unit, cachedPlayerData)
         RL:SaveSettings()
         print(L["WH_D11"] .. playerName .. L["WH_W15"] .. listName)
     end
+    return true
 end
 
 function RL:AddPlayersBatch(players, listType)

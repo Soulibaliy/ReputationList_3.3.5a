@@ -2,6 +2,15 @@
 
 All notable changes to the Reputation List addon will be documented in this file.
 
+## [2.2] - 2026-09-22
+
+### Added
+Added a button to import players from the built-in blacklist with one click
+
+### Changed
+Window scaling and increased range
+Issue with displaying meta information (guid, guild, etc.) about the character on the "Who's here" tab
+
 ## [2.0] - 2026-08-01
 
 ### Added
